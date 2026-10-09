@@ -70,9 +70,9 @@ public class MessagingAutoConfiguration {
     }
 
     @Bean
-    IdempotentMessageHandler idempotentMessageHandler(JdbcClient jdbc, TransactionTemplate transaction,
-                                                      MessageCodec codec, ObjectProvider<MeterRegistry> meters) {
-        return new IdempotentMessageHandler(jdbc, transaction, codec, meters.getIfAvailable(SimpleMeterRegistry::new));
+    IdempotentMessageHandler idempotentMessageHandler(JdbcClient jdbc, TransactionTemplate transaction, MessageCodec codec,
+                                                      ObjectProvider<MeterRegistry> meters, FaultInjector faults) {
+        return new IdempotentMessageHandler(jdbc, transaction, codec, meters.getIfAvailable(SimpleMeterRegistry::new), faults);
     }
 
     /** Spring Boot applies a single {@link CommonErrorHandler} bean to every listener container. */

@@ -40,6 +40,13 @@ orderflow:
     transient-failure-amount: 13.13
     transient-failures: 2
 
+logging:
+  pattern:
+    # orderId (correlationId) and messageId of the message being handled, from the MDC set by
+    # IdempotentMessageHandler. Outside message handling the MDC is empty and the replace drops the bare "[ ] ".
+    # grep a log for an orderId to follow one saga.
+    correlation: "%replace([%X{correlationId:-} %X{messageId:-}] ){'^. . $', ''}"
+
 management:
   endpoints:
     web:

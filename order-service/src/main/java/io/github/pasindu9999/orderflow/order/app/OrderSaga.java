@@ -10,6 +10,7 @@ import io.github.pasindu9999.orderflow.contracts.payment.PaymentRefunded;
 import io.github.pasindu9999.orderflow.contracts.payment.PaymentSucceeded;
 import io.github.pasindu9999.orderflow.contracts.payment.ProcessPayment;
 import io.github.pasindu9999.orderflow.messaging.Envelope;
+import io.github.pasindu9999.orderflow.messaging.FaultInjector;
 import io.github.pasindu9999.orderflow.messaging.NonRetryableMessageException;
 import io.github.pasindu9999.orderflow.messaging.outbox.OutboxWriter;
 import io.github.pasindu9999.orderflow.order.domain.CancelReason;
@@ -29,23 +30,30 @@ import org.springframework.transaction.annotation.Transactional;
  * The saga orchestrator: applies the reply handling table (ARCHITECTURE §3.3) to each reply. The status change
  * and the next command go into the same transaction as the inbox row, so they commit together or not at all.
  *
- * <p>Late replies on a cancelled order are still ignored here: they can only happen once the timeout sweeper
- * exists. A late {@code InventoryReserved} becomes {@code ReleaseInventory} on Day 9, and a late
- * {@code PaymentSucceeded} becomes {@code RefundPayment} on Day 10 (docs/PLAN.md).
+ * <p>Every status change is an optimistic update. If another writer (the timeout sweeper) changed the order in
+ * between, the update throws a retryable exception and the redelivered reply is evaluated against the new state.
+ *
+ * <p>A late {@code PaymentSucceeded} on a cancelled order is still ignored; turning it into {@code RefundPayment}
+ * is Day 10 (docs/PLAN.md).
  */
 @Service
 public class OrderSaga {
+
+    /** Between reading the order and saving its new status: where a concurrent writer can slip in. */
+    public static final String BEFORE_STATUS_UPDATE = "order-saga.before-status-update";
 
     private static final Logger log = LoggerFactory.getLogger(OrderSaga.class);
 
     private final OrderRepository orders;
     private final OutboxWriter outbox;
     private final Clock clock;
+    private final FaultInjector faults;
 
-    public OrderSaga(OrderRepository orders, OutboxWriter outbox, Clock clock) {
+    public OrderSaga(OrderRepository orders, OutboxWriter outbox, Clock clock, FaultInjector faults) {
         this.orders = orders;
         this.outbox = outbox;
         this.clock = clock;
+        this.faults = faults;
     }
 
     /** MANDATORY: only ever called from the idempotent inbox handler, which owns the transaction. */
@@ -74,7 +82,12 @@ public class OrderSaga {
                 outbox.write(processPayment(awaiting), causationId);
                 log.info("Order {} reserved; awaiting payment of {} {}", order.id(), order.totalAmount(), order.currency());
             }
-            case AWAITING_PAYMENT, CONFIRMED, CANCELLED -> ignore(order, "InventoryReserved");
+            case CANCELLED -> {
+                // Late reply: the order was cancelled (e.g. timed out) before inventory answered. Give the stock back.
+                outbox.write(new ReleaseInventory(order.id(), ReleaseInventory.Reason.LATE_RESERVATION), causationId);
+                log.info("Order {} is already cancelled ({}); releasing its late reservation", order.id(), order.cancelReason());
+            }
+            case AWAITING_PAYMENT, CONFIRMED -> ignore(order, "InventoryReserved");
         }
     }
 
@@ -120,6 +133,7 @@ public class OrderSaga {
     }
 
     private Order save(Order changed) {
+        faults.at(BEFORE_STATUS_UPDATE);
         orders.updateStatus(changed);
         return changed;
     }

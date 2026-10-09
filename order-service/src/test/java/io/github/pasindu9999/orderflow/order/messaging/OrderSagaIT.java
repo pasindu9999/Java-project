@@ -17,7 +17,9 @@ import io.github.pasindu9999.orderflow.messaging.Envelope;
 import io.github.pasindu9999.orderflow.messaging.MessageCodec;
 import io.github.pasindu9999.orderflow.messaging.error.DeadLetterErrorHandler;
 import io.github.pasindu9999.orderflow.messaging.testing.KafkaTopicReader;
+import io.github.pasindu9999.orderflow.messaging.testing.ProgrammableFaultInjector;
 import io.github.pasindu9999.orderflow.order.TestcontainersConfiguration;
+import io.github.pasindu9999.orderflow.order.app.OrderSaga;
 import io.github.pasindu9999.orderflow.order.app.OrderService;
 import io.github.pasindu9999.orderflow.order.domain.CancelReason;
 import io.github.pasindu9999.orderflow.order.domain.Order;
@@ -28,6 +30,8 @@ import io.micrometer.core.instrument.MeterRegistry;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -53,6 +57,7 @@ class OrderSagaIT {
     @Autowired MessageCodec codec;
     @Autowired JdbcClient jdbc;
     @Autowired MeterRegistry meters;
+    @Autowired ProgrammableFaultInjector faults;
 
     UUID orderId;
 
@@ -62,6 +67,11 @@ class OrderSagaIT {
                 new OrderDraft.LineInput("MUG-RED", 2, new BigDecimal("12.50")),
                 new OrderDraft.LineInput("TEA-GREEN", 1, new BigDecimal("8.00"))));
         orderId = orderService.placeOrder(UUID.randomUUID().toString(), draft).order().id();
+    }
+
+    @AfterEach
+    void disarmFaults() {
+        faults.reset();
     }
 
     @Test
@@ -180,6 +190,60 @@ class OrderSagaIT {
     }
 
     @Test
+    void shouldReleaseLateReservation_whenOrderWasAlreadyCancelledByTimeout() {
+        cancelAsTimedOut();
+
+        Envelope late = reply(new InventoryReserved(orderId));
+        await().atMost(15, SECONDS).until(() -> processed(late));
+
+        assertThat(order().status()).isEqualTo(OrderStatus.CANCELLED);
+        assertThat(order().cancelReason()).isEqualTo(CancelReason.TIMEOUT);
+        assertThat(outboxTypes()).as("released, never charged").containsExactly("ReserveInventory", "ReleaseInventory");
+        Envelope release = lastOutboxMessage();
+        assertThat(release.payload()).isEqualTo(new ReleaseInventory(orderId, ReleaseInventory.Reason.LATE_RESERVATION));
+        assertThat(release.causationId()).isEqualTo(late.messageId());
+    }
+
+    @Test
+    void shouldIgnoreEveryReply_whenOrderIsConfirmed() {
+        awaitPayment();
+        Envelope succeeded = reply(new PaymentSucceeded(orderId, UUID.randomUUID(), new BigDecimal("33.00"), "EUR"));
+        await().atMost(15, SECONDS).until(() -> processed(succeeded));
+        assertThat(order().status()).isEqualTo(OrderStatus.CONFIRMED);
+        long versionBefore = order().version();
+
+        List<Envelope> late = List.of(
+                reply(new InventoryReserved(orderId)),
+                reply(new InventoryRejected(orderId, InventoryRejected.Reason.OUT_OF_STOCK, List.of())),
+                reply(new PaymentFailed(orderId, PaymentFailed.Reason.DECLINED_LIMIT)),
+                reply(new PaymentSucceeded(orderId, UUID.randomUUID(), new BigDecimal("33.00"), "EUR")));
+        await().atMost(15, SECONDS).until(() -> late.stream().allMatch(this::processed));
+
+        assertThat(order().status()).isEqualTo(OrderStatus.CONFIRMED);
+        assertThat(order().version()).isEqualTo(versionBefore);
+        assertThat(outboxTypes()).containsExactly("ReserveInventory", "ProcessPayment");
+    }
+
+    @Test
+    void shouldRetryAndReleaseInsteadOfCharging_whenOrderIsCancelledWhileReplyIsBeingHandled() {
+        // Plays the timeout sweeper: it cancels the order between the saga's read and its update. It runs on
+        // another thread, so it commits outside the saga's transaction, just like the real sweeper would.
+        faults.runOnce(OrderSaga.BEFORE_STATUS_UPDATE, () -> CompletableFuture.runAsync(this::cancelAsTimedOut).join());
+
+        Envelope reply = reply(new InventoryReserved(orderId));
+
+        // First attempt: the version check fails and everything rolls back (inbox row included).
+        // The retried delivery reads CANCELLED and takes the late-reservation path instead.
+        await().atMost(15, SECONDS).until(() -> processed(reply));
+        assertThat(faults.isArmed(OrderSaga.BEFORE_STATUS_UPDATE)).as("the sweeper really slipped in").isFalse();
+        assertThat(order().status()).isEqualTo(OrderStatus.CANCELLED);
+        assertThat(order().cancelReason()).isEqualTo(CancelReason.TIMEOUT);
+        assertThat(outboxTypes()).containsExactly("ReserveInventory", "ReleaseInventory");
+        assertThat(lastOutboxMessage().payload())
+                .isEqualTo(new ReleaseInventory(orderId, ReleaseInventory.Reason.LATE_RESERVATION));
+    }
+
+    @Test
     void shouldDeadLetterReply_whenOrderIsUnknown() {
         UUID unknown = UUID.randomUUID();
         kafka.send(Topics.INVENTORY_EVENTS, unknown.toString(), codec.encode(codec.wrap(new InventoryReserved(unknown), null))).join();
@@ -190,6 +254,17 @@ class OrderSagaIT {
                         .stream().map(r -> r.value()).toList(),
                 r -> !r.isEmpty());
         assertThat(parked).hasSize(1);
+    }
+
+    /** What the timeout sweeper (Day 10) will do: an optimistic status change, committed on its own. */
+    private void cancelAsTimedOut() {
+        int updated = jdbc.sql("""
+                        UPDATE orders SET status = 'CANCELLED', cancel_reason = 'TIMEOUT', version = version + 1
+                        WHERE id = :id AND status IN ('PENDING', 'AWAITING_PAYMENT')
+                        """)
+                .param("id", orderId)
+                .update();
+        assertThat(updated).isEqualTo(1);
     }
 
     private void awaitPayment() {

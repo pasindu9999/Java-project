@@ -1,6 +1,7 @@
 package io.github.pasindu9999.orderflow.messaging.inbox;
 
 import io.github.pasindu9999.orderflow.messaging.Envelope;
+import io.github.pasindu9999.orderflow.messaging.FaultInjector;
 import io.github.pasindu9999.orderflow.messaging.MessageCodec;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -27,18 +28,30 @@ import org.springframework.transaction.support.TransactionTemplate;
  */
 public class IdempotentMessageHandler {
 
+    /** Inside the transaction, after the business handler: a crash here rolls everything back, inbox row included. */
+    public static final String BEFORE_COMMIT = "inbox-handler.before-commit";
+    /**
+     * After the DB commit, before the listener returns. With {@code AckMode.RECORD} the container commits the offset
+     * as soon as the listener returns, so this is also "before the offset commit": a crash here redelivers a
+     * message that was already processed, and the inbox skips it.
+     */
+    public static final String AFTER_COMMIT = "inbox-handler.after-commit";
+
     private static final Logger log = LoggerFactory.getLogger(IdempotentMessageHandler.class);
 
     private final JdbcClient jdbc;
     private final TransactionTemplate transaction;
     private final MessageCodec codec;
     private final MeterRegistry meters;
+    private final FaultInjector faults;
 
-    public IdempotentMessageHandler(JdbcClient jdbc, TransactionTemplate transaction, MessageCodec codec, MeterRegistry meters) {
+    public IdempotentMessageHandler(JdbcClient jdbc, TransactionTemplate transaction, MessageCodec codec,
+                                    MeterRegistry meters, FaultInjector faults) {
         this.jdbc = jdbc;
         this.transaction = transaction;
         this.codec = codec;
         this.meters = meters;
+        this.faults = faults;
     }
 
     /**
@@ -64,8 +77,10 @@ public class IdempotentMessageHandler {
                     return false;
                 }
                 handler.accept(envelope);
+                faults.at(BEFORE_COMMIT);
                 return true;
             });
+            faults.at(AFTER_COMMIT);
             if (!Boolean.TRUE.equals(processed)) {
                 log.info("Skipped duplicate {} {} for {}", envelope.messageType(), envelope.messageId(), consumer);
                 duplicates(consumer).increment();

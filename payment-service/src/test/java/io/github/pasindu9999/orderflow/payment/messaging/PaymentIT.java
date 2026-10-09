@@ -14,7 +14,9 @@ import io.github.pasindu9999.orderflow.contracts.payment.RefundPayment;
 import io.github.pasindu9999.orderflow.messaging.Envelope;
 import io.github.pasindu9999.orderflow.messaging.MessageCodec;
 import io.github.pasindu9999.orderflow.messaging.error.DeadLetterErrorHandler;
+import io.github.pasindu9999.orderflow.messaging.inbox.IdempotentMessageHandler;
 import io.github.pasindu9999.orderflow.messaging.testing.KafkaTopicReader;
+import io.github.pasindu9999.orderflow.messaging.testing.ProgrammableFaultInjector;
 import io.github.pasindu9999.orderflow.payment.TestcontainersConfiguration;
 import io.github.pasindu9999.orderflow.payment.domain.DeclineReason;
 import io.github.pasindu9999.orderflow.payment.domain.Payment;
@@ -26,6 +28,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -56,6 +59,7 @@ class PaymentIT {
     @Autowired JdbcClient jdbc;
     @Autowired PaymentRepository payments;
     @Autowired MeterRegistry meters;
+    @Autowired ProgrammableFaultInjector faults;
 
     final UUID orderId = UUID.randomUUID();
     final UUID customerId = UUID.randomUUID();
@@ -67,6 +71,11 @@ class PaymentIT {
                 .baseUrl("http://localhost:" + port)
                 .defaultStatusHandler(status -> true, (request, response) -> { })
                 .build();
+    }
+
+    @AfterEach
+    void disarmFaults() {
+        faults.reset();
     }
 
     @Test
@@ -120,6 +129,32 @@ class PaymentIT {
         await().atMost(15, SECONDS).until(() -> duplicatesSkipped() >= duplicatesBefore + 1);
         assertThat(awaitReplies(1).getFirst().payload()).isInstanceOf(PaymentSucceeded.class);
         assertThat(paymentRows()).isEqualTo(1);
+    }
+
+    @Test
+    void shouldChargeOnce_whenConsumerCrashesBeforeTheDatabaseCommit() {
+        double duplicatesBefore = duplicatesSkipped();
+        faults.failOnce(IdempotentMessageHandler.BEFORE_COMMIT); // charge, reply and inbox row all roll back
+
+        send(processPayment("20.00"));
+
+        assertThat(awaitReplies(1).getFirst().payload()).isInstanceOf(PaymentSucceeded.class);
+        assertThat(faults.isArmed(IdempotentMessageHandler.BEFORE_COMMIT)).as("the crash happened").isFalse();
+        assertThat(paymentRows()).isEqualTo(1);
+        assertThat(duplicatesSkipped()).as("the redelivery was processed, not skipped").isEqualTo(duplicatesBefore);
+    }
+
+    @Test
+    void shouldSkipRedeliveryWithoutSecondCharge_whenConsumerCrashesAfterTheDatabaseCommit() {
+        double duplicatesBefore = duplicatesSkipped();
+        faults.failOnce(IdempotentMessageHandler.AFTER_COMMIT); // committed, but the offset never is
+
+        send(processPayment("20.00"));
+
+        await().atMost(15, SECONDS).until(() -> duplicatesSkipped() >= duplicatesBefore + 1);
+        assertThat(awaitReplies(1).getFirst().payload()).isInstanceOf(PaymentSucceeded.class);
+        assertThat(faults.isArmed(IdempotentMessageHandler.AFTER_COMMIT)).as("the crash happened").isFalse();
+        assertThat(paymentRows()).as("no second charge").isEqualTo(1);
     }
 
     @Test

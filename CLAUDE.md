@@ -6,7 +6,7 @@ Read first: `docs/ARCHITECTURE.md`, `docs/adr/`, `docs/PLAN.md`.
 
 ## Working agreement
 
-- **Phase: implementation.** `docs/PLAN.md` was approved on 2026-10-08. Current day: **Day 8** done (shared `DeadLetterErrorHandler`: backoff, classification, `<topic>.DLT`). Next: **Day 9** (crash scenarios, late `InventoryReserved`, MDC in logs → M3). Deliberately deferred: `OrderSaga` ignores (WARN) late replies on a cancelled order (`InventoryReserved` → `ReleaseInventory` is Day 9, `PaymentSucceeded` → `RefundPayment` is Day 10), and payment-service doesn't check `expiresAt` yet (Day 10).
+- **Phase: implementation.** `docs/PLAN.md` was approved on 2026-10-08. Current day: **Day 9** done (crash points, late `InventoryReserved` → `ReleaseInventory`, optimistic-conflict retry, `[orderId messageId]` in logs; **M3 reached**). Next: **Day 10** (timeout sweeper, payment expiry, late `PaymentSucceeded` → refund). Deliberately deferred: `OrderSaga` ignores (WARN) late replies on a cancelled order (`InventoryReserved` → `ReleaseInventory` is Day 9, `PaymentSucceeded` → `RefundPayment` is Day 10), and payment-service doesn't check `expiresAt` yet (Day 10).
 - **Never commit or push automatically.** The owner reviews and commits.
 - Work follows `docs/PLAN.md` day by day. Don't start the next day's scope early.
 - Every design decision must be defensible in an interview. If you change one, update the relevant ADR (or add a new one) in the same commit, including the options considered and the strongest argument against.
@@ -74,7 +74,7 @@ Maven groupId: `io.github.pasindu9999.orderflow`. Base package: `io.github.pasin
 - Constructor injection only. Inject `Clock` (no `Instant.now()` in logic) so time-based tests are deterministic.
 - Money: `BigDecimal` in code, `NUMERIC(19,2)` in the DB, decimal **string** on the wire.
 - Exceptions: `MessageParseException` and `NonRetryableMessageException` go straight to the DLT. Everything else is retried (ADR-0004). Don't catch-and-swallow in listeners.
-- Logging: SLF4J. `correlationId` (orderId) and `messageId` go in the MDC for every message. INFO for state transitions, WARN for ignored or out-of-state messages, ERROR only for things needing action.
+- Logging: SLF4J. `correlationId` (orderId) and `messageId` go in the MDC for every message (set by `IdempotentMessageHandler`) and are printed by `logging.pattern.correlation` in each service's `application.yml`. INFO for state transitions, WARN for ignored or out-of-state messages, ERROR only for things needing action.
 
 ## Testing rules
 
@@ -83,7 +83,7 @@ Maven groupId: `io.github.pasindu9999.orderflow`. Base package: `io.github.pasin
 - **Never `Thread.sleep`.** Use Awaitility (`await().atMost(10, SECONDS).untilAsserted(...)`).
 - Consumers use `auto-offset-reset: earliest`, so a test may produce before the listener has its partitions; nothing is missed. To assert that something did **not** happen (e.g. a duplicate was skipped), first wait for proof the message was consumed: its `processed_message` row, or the `messaging.duplicates.skipped` counter. Never assert absence right after sending.
 - Each test uses fresh random `orderId`s/SKUs. Never depend on another test's data or order.
-- Faults are injected through the `FaultInjector` bean (a no-op in production), never through `if (test)` branches in production code. Fault points are named constants on the class that calls them (e.g. `OutboxRelay.AFTER_SEND`).
+- Faults are injected through the `FaultInjector` bean (a no-op in production), never through `if (test)` branches in production code. Fault points are named constants on the class that calls them (e.g. `OutboxRelay.AFTER_SEND`, `IdempotentMessageHandler.AFTER_COMMIT`). `ProgrammableFaultInjector` can throw once (`failOnce`), several times (`failTimes`) or run an action such as a concurrent writer (`runOnce`); assert `isArmed(point)` is false so a test proves its fault really fired.
 - Shared test helpers come from the `platform-messaging` **test-jar**: `ProgrammableFaultInjector` (arm a point; call `reset()` in `@AfterEach`) and `KafkaTopicReader` (reads a topic without a consumer group; filter by orderId). Each service registers `ProgrammableFaultInjector` in its `TestcontainersConfiguration`, so all its ITs share one Spring context.
 - Singleton containers per module. Locally, enable reuse in `~/.testcontainers.properties`: `testcontainers.reuse.enable=true`.
 - `e2e-tests` boots the three services with `SpringApplicationBuilder`, each reading its own module's `src/main/resources/` through `spring.config.location` (every service jar has a root `application.yml`, so the classpath can't tell them apart). It drives the system only through the REST APIs; the one shortcut is inserting each test's stock rows into inventory_db.

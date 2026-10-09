@@ -313,6 +313,9 @@ COMMIT;
 ```
 
 - Delivery is at-least-once. If the service crashes after sending but before `COMMIT`, the row is sent again on the next run. Consumers handle that.
+- A **failed send** (Kafka down, timeout) stops the batch at that row so nothing overtakes it. Rows already sent in that batch stay marked; they are not re-sent.
+- The relay runs on its **own single background thread** (`OutboxRelayScheduler`, a `SmartLifecycle`), not on `@Scheduled`, so the library doesn't switch on scheduling for the whole application. It starts after Kafka and stops before it. When a batch comes back full it runs again immediately, so a burst doesn't wait one poll interval per batch.
+- Tests set `orderflow.outbox.relay-enabled=false` and call `OutboxRelay.publishBatch()` directly, so every step is deterministic. Crash points (`OutboxRelay.BEFORE_SEND`, `AFTER_SEND`, `OutboxWriter.AFTER_WRITE`) are triggered through the `FaultInjector`.
 - There is no "last published id" high-water mark. Identity values are assigned at *insert* time, not commit time, so a transaction holding `id = 10` can commit after `id = 11` has already been published. A high-water mark would skip it forever. The `published_at IS NULL` flag never skips anything.
 - An hourly cleanup job deletes published rows older than 7 days.
 - A gauge `outbox.pending` and a gauge for the age of the oldest unpublished row are exposed through Actuator.

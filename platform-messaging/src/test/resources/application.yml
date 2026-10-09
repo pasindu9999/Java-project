@@ -1,0 +1,11 @@
+spring:
+  application:
+    name: messaging-test
+  flyway:
+    locations: classpath:db/migration/messaging-test
+
+orderflow:
+  outbox:
+    # Tests drive OutboxRelay.publishBatch() directly, so every step is deterministic.
+    relay-enabled: false
+    send-timeout: 3s

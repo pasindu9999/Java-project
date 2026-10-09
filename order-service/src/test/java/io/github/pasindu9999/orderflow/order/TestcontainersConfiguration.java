@@ -1,5 +1,6 @@
 package io.github.pasindu9999.orderflow.order;
 
+import io.github.pasindu9999.orderflow.messaging.testing.ProgrammableFaultInjector;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Bean;
@@ -22,6 +23,13 @@ public class TestcontainersConfiguration {
     @Bean
     @ServiceConnection
     KafkaContainer kafka() {
-        return new KafkaContainer("apache/kafka:4.3.1");
+        // Same as compose: topics exist only if a service declares them.
+        return new KafkaContainer("apache/kafka:4.3.1").withEnv("KAFKA_AUTO_CREATE_TOPICS_ENABLE", "false");
+    }
+
+    /** Does nothing until a test arms a fault point. Shared by all ITs so they also share one context. */
+    @Bean
+    ProgrammableFaultInjector faultInjector() {
+        return new ProgrammableFaultInjector();
     }
 }

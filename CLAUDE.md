@@ -6,7 +6,7 @@ Read first: `docs/ARCHITECTURE.md`, `docs/adr/`, `docs/PLAN.md`.
 
 ## Working agreement
 
-- **Phase: implementation.** `docs/PLAN.md` was approved on 2026-10-08. Current day: **Day 2** done (contracts, codec, order API). Next: **Day 3** (outbox).
+- **Phase: implementation.** `docs/PLAN.md` was approved on 2026-10-08. Current day: **Day 3** done (outbox writer, relay, gauges; order emits `ReserveInventory`). Next: **Day 4** (inbox/idempotent consumers, inventory reserve).
 - **Never commit or push automatically.** The owner reviews and commits.
 - Work follows `docs/PLAN.md` day by day. Don't start the next day's scope early.
 - Every design decision must be defensible in an interview. If you change one, update the relevant ADR (or add a new one) in the same commit, including the options considered and the strongest argument against.
@@ -83,7 +83,8 @@ Maven groupId: `io.github.pasindu9999.orderflow`. Base package: `io.github.pasin
 - **Never `Thread.sleep`.** Use Awaitility (`await().atMost(10, SECONDS).untilAsserted(...)`).
 - Wait for partition assignment before producing in consumer tests.
 - Each test uses fresh random `orderId`s/SKUs. Never depend on another test's data or order.
-- Faults are injected through the `FaultInjector` bean (a no-op in production), never through `if (test)` branches in production code.
+- Faults are injected through the `FaultInjector` bean (a no-op in production), never through `if (test)` branches in production code. Fault points are named constants on the class that calls them (e.g. `OutboxRelay.AFTER_SEND`).
+- Shared test helpers come from the `platform-messaging` **test-jar**: `ProgrammableFaultInjector` (arm a point; call `reset()` in `@AfterEach`) and `KafkaTopicReader` (reads a topic without a consumer group; filter by orderId). Each service registers `ProgrammableFaultInjector` in its `TestcontainersConfiguration`, so all its ITs share one Spring context.
 - Singleton containers per module. Locally, enable reuse in `~/.testcontainers.properties`: `testcontainers.reuse.enable=true`.
 - Done = `./mvnw verify` green locally **and** in CI.
 

@@ -1,5 +1,7 @@
 package io.github.pasindu9999.orderflow.order.app;
 
+import io.github.pasindu9999.orderflow.contracts.inventory.ReserveInventory;
+import io.github.pasindu9999.orderflow.messaging.outbox.OutboxWriter;
 import io.github.pasindu9999.orderflow.order.config.SagaProperties;
 import io.github.pasindu9999.orderflow.order.domain.Order;
 import io.github.pasindu9999.orderflow.order.domain.OrderDraft;
@@ -20,12 +22,15 @@ public class OrderService {
     private static final Logger log = LoggerFactory.getLogger(OrderService.class);
 
     private final OrderRepository orders;
+    private final OutboxWriter outbox;
     private final TransactionTemplate transaction;
     private final Clock clock;
     private final SagaProperties saga;
 
-    public OrderService(OrderRepository orders, TransactionTemplate transaction, Clock clock, SagaProperties saga) {
+    public OrderService(OrderRepository orders, OutboxWriter outbox, TransactionTemplate transaction, Clock clock,
+                        SagaProperties saga) {
         this.orders = orders;
+        this.outbox = outbox;
         this.transaction = transaction;
         this.clock = clock;
         this.saga = saga;
@@ -55,7 +60,11 @@ public class OrderService {
 
         Order order = Order.place(UUID.randomUUID(), draft, idempotencyKey, now(), saga.timeout());
         try {
-            transaction.executeWithoutResult(status -> orders.insert(order));
+            // The order and the saga's first command commit together, or neither does (ADR-0002).
+            transaction.executeWithoutResult(status -> {
+                orders.insert(order);
+                outbox.write(reserveInventory(order), null);
+            });
         } catch (DuplicateKeyException raceLost) {
             Order winner = orders.findByIdempotencyKey(draft.customerId(), idempotencyKey).orElseThrow(() -> raceLost);
             return replay(winner, requestHash);
@@ -66,6 +75,12 @@ public class OrderService {
 
     public Order getOrder(UUID orderId) {
         return orders.findById(orderId).orElseThrow(() -> new OrderNotFoundException(orderId));
+    }
+
+    private static ReserveInventory reserveInventory(Order order) {
+        return new ReserveInventory(order.id(), order.lines().stream()
+                .map(line -> new ReserveInventory.Line(line.sku(), line.quantity()))
+                .toList());
     }
 
     private PlaceOrderResult replay(Order existing, String requestHash) {

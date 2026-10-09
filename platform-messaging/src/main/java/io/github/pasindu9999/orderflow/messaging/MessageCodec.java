@@ -62,12 +62,22 @@ public final class MessageCodec {
 
     /** Wraps a new outgoing message: fresh messageId, current time, type and version from the catalog. */
     public Envelope wrap(Message payload, UUID causationId) {
+        MessageCatalog.Entry entry = entryFor(payload);
+        return new Envelope(UUID.randomUUID(), entry.type(), entry.version(), clock.instant(),
+                payload.orderId(), causationId, producer, payload);
+    }
+
+    /** The one topic this message type is published on. */
+    public String topicFor(Message payload) {
+        return entryFor(payload).topic();
+    }
+
+    private MessageCatalog.Entry entryFor(Message payload) {
         MessageCatalog.Entry entry = entryByClass.get(payload.getClass());
         if (entry == null) {
             throw new IllegalArgumentException("Not in the message catalog: " + payload.getClass().getName());
         }
-        return new Envelope(UUID.randomUUID(), entry.type(), entry.version(), clock.instant(),
-                payload.orderId(), causationId, producer, payload);
+        return entry;
     }
 
     public String encode(Envelope envelope) {

@@ -134,8 +134,13 @@ class OrderApiIT {
         }
 
         assertThat(responses).allSatisfy(r -> assertThat(r.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED));
-        assertThat(responses.stream().map(r -> body(r).get("orderId").asString()).distinct()).hasSize(1);
+        List<String> orderIds = responses.stream().map(r -> body(r).get("orderId").asString()).distinct().toList();
+        assertThat(orderIds).hasSize(1);
         assertThat(countOrders(customerId)).isEqualTo(1);
+        assertThat(jdbc.sql("SELECT count(*) FROM outbox WHERE message_key = :key")
+                .param("key", orderIds.getFirst())
+                .query(Integer.class)
+                .single()).as("losing requests rolled back their command too").isEqualTo(1);
     }
 
     @Test

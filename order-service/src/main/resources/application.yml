@@ -13,6 +13,13 @@ spring:
     locations: classpath:db/migration/order
   kafka:
     bootstrap-servers: localhost:9092
+    producer:
+      # Wait for all in-sync replicas, and let the broker drop the producer's own retry duplicates.
+      acks: all
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      properties:
+        enable.idempotence: true
     consumer:
       group-id: order-service
 

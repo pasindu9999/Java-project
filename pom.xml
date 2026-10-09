@@ -45,6 +45,13 @@
                 <artifactId>platform-messaging</artifactId>
                 <version>${project.version}</version>
             </dependency>
+            <dependency>
+                <groupId>io.github.pasindu9999.orderflow</groupId>
+                <artifactId>platform-messaging</artifactId>
+                <version>${project.version}</version>
+                <type>test-jar</type>
+                <scope>test</scope>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 

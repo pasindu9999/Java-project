@@ -24,6 +24,21 @@ public class ReservationRepository {
                 .optional();
     }
 
+    /** Like {@link #findStatus}, but locks the row until the transaction ends. */
+    public Optional<ReservationStatus> lockStatus(UUID orderId) {
+        return jdbc.sql("SELECT status FROM reservation WHERE order_id = :orderId FOR UPDATE")
+                .param("orderId", orderId)
+                .query((rs, rowNum) -> ReservationStatus.valueOf(rs.getString("status")))
+                .optional();
+    }
+
+    public void updateStatus(UUID orderId, ReservationStatus status) {
+        jdbc.sql("UPDATE reservation SET status = :status, updated_at = now() WHERE order_id = :orderId")
+                .param("orderId", orderId)
+                .param("status", status.name())
+                .update();
+    }
+
     /** Throws {@code DuplicateKeyException} if the order already has a reservation row. */
     public void insert(UUID orderId, ReservationStatus status, List<ReservationLine> lines) {
         jdbc.sql("INSERT INTO reservation (order_id, status) VALUES (:orderId, :status)")

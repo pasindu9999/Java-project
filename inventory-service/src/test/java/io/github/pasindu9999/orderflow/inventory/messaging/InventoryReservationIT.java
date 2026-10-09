@@ -8,6 +8,7 @@ import io.github.pasindu9999.orderflow.contracts.Message;
 import io.github.pasindu9999.orderflow.contracts.Topics;
 import io.github.pasindu9999.orderflow.contracts.inventory.InventoryRejected;
 import io.github.pasindu9999.orderflow.contracts.inventory.InventoryReserved;
+import io.github.pasindu9999.orderflow.contracts.inventory.ReleaseInventory;
 import io.github.pasindu9999.orderflow.contracts.inventory.ReserveInventory;
 import io.github.pasindu9999.orderflow.inventory.TestcontainersConfiguration;
 import io.github.pasindu9999.orderflow.inventory.domain.ReservationLine;
@@ -119,6 +120,53 @@ class InventoryReservationIT {
 
         assertThat(replies()).hasSize(1);
         assertThat(stock.find(mug)).contains(new StockLevel(mug, 6, 4));
+    }
+
+    @Test
+    void shouldRestoreStockOnce_whenReservedOrderIsReleasedTwice() {
+        createStock(mug, 10);
+        createStock(tea, 5);
+        send(new ReserveInventory(orderId, List.of(new ReserveInventory.Line(mug, 3), new ReserveInventory.Line(tea, 2))));
+        awaitSingleReply();
+
+        Envelope first = send(new ReleaseInventory(orderId, ReleaseInventory.Reason.PAYMENT_DECLINED));
+        Envelope second = send(new ReleaseInventory(orderId, ReleaseInventory.Reason.TIMEOUT)); // new messageId
+        await().atMost(15, SECONDS).until(() -> processed(first) && processed(second));
+
+        assertThat(stock.find(mug)).contains(new StockLevel(mug, 10, 0));
+        assertThat(stock.find(tea)).contains(new StockLevel(tea, 5, 0));
+        assertThat(reservations.findStatus(orderId)).contains(ReservationStatus.RELEASED);
+        assertThat(replies()).as("a release needs no reply").hasSize(1);
+    }
+
+    @Test
+    void shouldWriteTombstoneThatBlocksLaterReserve_whenReleaseArrivesBeforeReserve() {
+        createStock(mug, 10);
+
+        Envelope release = send(new ReleaseInventory(orderId, ReleaseInventory.Reason.TIMEOUT));
+        await().atMost(15, SECONDS).until(() -> processed(release));
+        assertThat(reservations.findStatus(orderId)).contains(ReservationStatus.RELEASED);
+
+        // e.g. the ReserveInventory was parked in the DLT and is replayed after the saga timed out
+        Envelope lateReserve = send(new ReserveInventory(orderId, List.of(new ReserveInventory.Line(mug, 4))));
+        await().atMost(15, SECONDS).until(() -> processed(lateReserve));
+
+        assertThat(stock.find(mug)).contains(new StockLevel(mug, 10, 0));
+        assertThat(reservations.findStatus(orderId)).contains(ReservationStatus.RELEASED);
+        assertThat(replies()).isEmpty();
+    }
+
+    @Test
+    void shouldLeaveRejectedReservationUnchanged_whenReleased() {
+        createStock(mug, 1);
+        send(new ReserveInventory(orderId, List.of(new ReserveInventory.Line(mug, 2))));
+        assertThat(awaitSingleReply().payload()).isInstanceOf(InventoryRejected.class);
+
+        Envelope release = send(new ReleaseInventory(orderId, ReleaseInventory.Reason.TIMEOUT));
+        await().atMost(15, SECONDS).until(() -> processed(release));
+
+        assertThat(reservations.findStatus(orderId)).contains(ReservationStatus.REJECTED);
+        assertThat(stock.find(mug)).contains(new StockLevel(mug, 1, 0));
     }
 
     private Envelope send(Message command) {

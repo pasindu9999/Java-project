@@ -47,9 +47,34 @@ public class ReservationService {
     public void handle(Envelope envelope) {
         switch (envelope.payloadAs(InventoryCommand.class)) {
             case ReserveInventory command -> reserve(command, envelope.messageId());
-            case ReleaseInventory command -> throw new UnsupportedOperationException(
-                    "ReleaseInventory for order " + command.orderId() + " is not supported yet");
+            case ReleaseInventory command -> release(command);
         }
+    }
+
+    /**
+     * Compensation (ARCHITECTURE §6.3): never fails for business reasons, and needs no reply. The reservation row
+     * is locked first, so a release can't interleave with anything else touching the same order.
+     */
+    private void release(ReleaseInventory command) {
+        UUID orderId = command.orderId();
+        Optional<ReservationStatus> status = reservations.lockStatus(orderId);
+        if (status.isEmpty()) {
+            // Tombstone: a ReserveInventory that arrives later (e.g. replayed from the DLT) finds a row and is ignored.
+            // If a reserve for this order commits first, this insert fails and the retried release finds RESERVED.
+            reservations.insert(orderId, ReservationStatus.RELEASED, List.of());
+            log.info("Released order {} before any reservation ({}); tombstone written", orderId, command.reason());
+            return;
+        }
+        if (status.get() != ReservationStatus.RESERVED) {
+            log.info("Order {} is already {}; nothing to release ({})", orderId, status.get(), command.reason());
+            return;
+        }
+
+        List<ReservationLine> lines = reservations.findLines(orderId);
+        stock.lockForUpdate(lines.stream().map(ReservationLine::sku).toList()); // same SKU order as reserve
+        lines.forEach(line -> stock.release(line.sku(), line.quantity()));
+        reservations.updateStatus(orderId, ReservationStatus.RELEASED);
+        log.info("Released {} line(s) for order {} ({})", lines.size(), orderId, command.reason());
     }
 
     private void reserve(ReserveInventory command, UUID causationId) {

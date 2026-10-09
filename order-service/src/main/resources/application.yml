@@ -22,6 +22,17 @@ spring:
         enable.idempotence: true
     consumer:
       group-id: order-service
+      # A new consumer group starts from the oldest message, so nothing sent before it first joined is lost.
+      auto-offset-reset: earliest
+      # Offsets are committed by the listener container, only after the record's DB transaction commits.
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    listener:
+      # Commit after every record, so a crash re-delivers at most the record being processed (ADR-0003).
+      ack-mode: record
+      # One consumer thread per partition.
+      concurrency: 3
 
 orderflow:
   saga:

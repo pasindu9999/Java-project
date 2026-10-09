@@ -50,6 +50,21 @@ public class StockRepository {
         }
     }
 
+    /** Moves units from reserved back to available. Must run under {@link #lockForUpdate}. */
+    public void release(String sku, int quantity) {
+        int updated = jdbc.sql("""
+                        UPDATE product_stock
+                        SET available = available + :quantity, reserved = reserved - :quantity, updated_at = now()
+                        WHERE sku = :sku AND reserved >= :quantity
+                        """)
+                .param("sku", sku)
+                .param("quantity", quantity)
+                .update();
+        if (updated != 1) {
+            throw new IllegalStateException("Stock for " + sku + " has fewer than " + quantity + " units reserved");
+        }
+    }
+
     public Optional<StockLevel> find(String sku) {
         return jdbc.sql("SELECT sku, available, reserved FROM product_stock WHERE sku = :sku")
                 .param("sku", sku)

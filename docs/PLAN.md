@@ -1,6 +1,6 @@
 # orderflow: Delivery plan (12-14 days, 6-8 h/day)
 
-> Status: **approved 2026-10-08.** Days 0-4 are done (M1 reached). Next: Day 5 (inventory release, order consumes inventory events).
+> Status: **approved 2026-10-08.** Days 0-5 are done (M1 reached). Next: Day 6 (payment and full saga → M2).
 
 ## Ground rules
 

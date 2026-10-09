@@ -1,9 +1,12 @@
 package io.github.pasindu9999.orderflow.order;
 
+import io.github.pasindu9999.orderflow.contracts.Topics;
 import io.github.pasindu9999.orderflow.messaging.testing.ProgrammableFaultInjector;
+import org.apache.kafka.clients.admin.NewTopic;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Bean;
+import org.springframework.kafka.config.TopicBuilder;
 import org.testcontainers.kafka.KafkaContainer;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
@@ -31,5 +34,11 @@ public class TestcontainersConfiguration {
     @Bean
     ProgrammableFaultInjector faultInjector() {
         return new ProgrammableFaultInjector();
+    }
+
+    /** In the real system inventory-service declares this topic. Here the test plays inventory-service. */
+    @Bean
+    NewTopic inventoryEvents() {
+        return TopicBuilder.name(Topics.INVENTORY_EVENTS).partitions(3).replicas(1).build();
     }
 }

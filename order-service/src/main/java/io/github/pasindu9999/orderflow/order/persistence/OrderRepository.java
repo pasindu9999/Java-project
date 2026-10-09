@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
@@ -67,6 +68,31 @@ public class OrderRepository {
                     .param("quantity", line.quantity())
                     .param("unitPrice", line.unitPrice())
                     .update();
+        }
+    }
+
+    /**
+     * Saves a status change. {@code order} still carries the version it was read with; the update only applies if
+     * nobody changed the row since (ARCHITECTURE §3.3).
+     *
+     * @throws OptimisticLockingFailureException if the row changed in between, e.g. the timeout sweeper cancelled
+     *         the order. It is retryable: the redelivered message is then evaluated against the new state.
+     */
+    public void updateStatus(Order order) {
+        int updated = jdbc.sql("""
+                        UPDATE orders
+                        SET status = :status, cancel_reason = :cancelReason, updated_at = :updatedAt, version = version + 1
+                        WHERE id = :id AND version = :version
+                        """)
+                .param("id", order.id())
+                .param("status", order.status().name())
+                .param("cancelReason", order.cancelReason() == null ? null : order.cancelReason().name(), Types.VARCHAR)
+                .param("updatedAt", utc(order.updatedAt()))
+                .param("version", order.version())
+                .update();
+        if (updated != 1) {
+            throw new OptimisticLockingFailureException(
+                    "Order %s changed since version %d".formatted(order.id(), order.version()));
         }
     }
 

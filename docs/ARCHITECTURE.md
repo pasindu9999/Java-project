@@ -272,6 +272,8 @@ CREATE TABLE reservation_line (
 
 Releasing is a compensation, so it must never fail for business reasons. It can only fail for technical ones, which are retried.
 
+Release locks the `reservation` row first (`FOR UPDATE`), then the stock rows in the same SKU order as reserve, so it can't deadlock with a reservation for another order. If a reserve for the same order commits between the release's "no row" check and its tombstone insert, the insert fails on the primary key; the retried release then finds `RESERVED` and returns the stock. (Both commands share the order's partition, so this only happens around a rebalance.)
+
 ### 6.4 payment_db
 
 ```sql

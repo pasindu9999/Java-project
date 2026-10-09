@@ -6,7 +6,7 @@ Read first: `docs/ARCHITECTURE.md`, `docs/adr/`, `docs/PLAN.md`.
 
 ## Working agreement
 
-- **Phase: implementation.** `docs/PLAN.md` was approved on 2026-10-08. Current day: **Day 4** done (idempotent inbox, inventory reserve). Next: **Day 5** (inventory release + tombstone, order consumes inventory events). `ReservationService` still throws `UnsupportedOperationException` for `ReleaseInventory`; nothing sends it before Day 5/6.
+- **Phase: implementation.** `docs/PLAN.md` was approved on 2026-10-08. Current day: **Day 5** done (inventory release + tombstone, `OrderSaga` handles inventory replies). Next: **Day 6** (payment-service, payment replies → M2). `OrderSaga` still ignores (WARN) a late `InventoryReserved` on a cancelled order; turning it into `ReleaseInventory` is Day 9.
 - **Never commit or push automatically.** The owner reviews and commits.
 - Work follows `docs/PLAN.md` day by day. Don't start the next day's scope early.
 - Every design decision must be defensible in an interview. If you change one, update the relevant ADR (or add a new one) in the same commit, including the options considered and the strongest argument against.

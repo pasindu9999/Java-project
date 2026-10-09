@@ -6,7 +6,7 @@ Read first: `docs/ARCHITECTURE.md`, `docs/adr/`, `docs/PLAN.md`.
 
 ## Working agreement
 
-- **Phase: implementation.** `docs/PLAN.md` was approved on 2026-10-08. Current day: **Day 9** done (crash points, late `InventoryReserved` → `ReleaseInventory`, optimistic-conflict retry, `[orderId messageId]` in logs; **M3 reached**). Next: **Day 10** (timeout sweeper, payment expiry, late `PaymentSucceeded` → refund). Deliberately deferred: `OrderSaga` ignores (WARN) late replies on a cancelled order (`InventoryReserved` → `ReleaseInventory` is Day 9, `PaymentSucceeded` → `RefundPayment` is Day 10), and payment-service doesn't check `expiresAt` yet (Day 10).
+- **Phase: implementation.** `docs/PLAN.md` was approved on 2026-10-08. Current day: **Day 9** done (crash points, late `InventoryReserved` → `ReleaseInventory`, optimistic-conflict retry, `[orderId messageId]` in logs; **M3 reached**). Next: **Day 10** (timeout sweeper, payment expiry, late `PaymentSucceeded` → refund). Deliberately deferred to Day 10: `OrderSaga` still ignores (WARN) a late `PaymentSucceeded` on a cancelled order (→ `RefundPayment`), and payment-service doesn't check `expiresAt` yet.
 - **Never commit or push automatically.** The owner reviews and commits.
 - Work follows `docs/PLAN.md` day by day. Don't start the next day's scope early.
 - Every design decision must be defensible in an interview. If you change one, update the relevant ADR (or add a new one) in the same commit, including the options considered and the strongest argument against.

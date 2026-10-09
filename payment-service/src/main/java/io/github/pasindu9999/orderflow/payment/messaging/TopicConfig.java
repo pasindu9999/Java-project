@@ -9,8 +9,8 @@ import org.springframework.kafka.config.TopicBuilder;
 
 /**
  * Topics this service produces to, plus the DLT of the topic it consumes (ARCHITECTURE §4).
- * {@code payment.commands} itself is declared by order-service, its producer; until that topic exists the listener just
- * waits for it.
+ * {@code payment.commands} itself is declared by order-service, its producer; until that topic exists the
+ * listener just waits for it.
  */
 @Configuration(proxyBeanMethods = false)
 class TopicConfig {

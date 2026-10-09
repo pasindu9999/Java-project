@@ -13,6 +13,7 @@ import io.github.pasindu9999.orderflow.contracts.payment.ProcessPayment;
 import io.github.pasindu9999.orderflow.contracts.payment.RefundPayment;
 import io.github.pasindu9999.orderflow.messaging.Envelope;
 import io.github.pasindu9999.orderflow.messaging.MessageCodec;
+import io.github.pasindu9999.orderflow.messaging.error.DeadLetterErrorHandler;
 import io.github.pasindu9999.orderflow.messaging.testing.KafkaTopicReader;
 import io.github.pasindu9999.orderflow.payment.TestcontainersConfiguration;
 import io.github.pasindu9999.orderflow.payment.domain.DeclineReason;
@@ -21,6 +22,7 @@ import io.github.pasindu9999.orderflow.payment.domain.PaymentStatus;
 import io.github.pasindu9999.orderflow.payment.persistence.PaymentRepository;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -80,6 +82,20 @@ class PaymentIT {
         ResponseEntity<String> response = getPayment();
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).contains("\"status\":\"SUCCEEDED\"", "\"amount\":\"37.50\"");
+    }
+
+    @Test
+    void shouldChargeOnceAfterRetries_whenProviderIsUnavailableTwiceForTheFlakyAmount() {
+        long sentAt = System.nanoTime();
+        send(processPayment("13.13"));
+
+        Envelope reply = awaitReplies(1).getFirst();
+        assertThat(reply.payload()).isInstanceOf(PaymentSucceeded.class);
+        assertThat(Duration.ofNanos(System.nanoTime() - sentAt))
+                .as("two failed attempts, then 500 ms + 1 s of backoff").isGreaterThanOrEqualTo(Duration.ofMillis(1500));
+        assertThat(paymentRows()).isEqualTo(1);
+        assertThat(KafkaTopicReader.readKey(kafkaAdmin.getConfigurationProperties(),
+                Topics.PAYMENT_COMMANDS + DeadLetterErrorHandler.DLT_SUFFIX, orderId.toString())).isEmpty();
     }
 
     @Test

@@ -18,6 +18,7 @@ import io.github.pasindu9999.orderflow.inventory.persistence.ReservationReposito
 import io.github.pasindu9999.orderflow.inventory.persistence.StockRepository;
 import io.github.pasindu9999.orderflow.messaging.Envelope;
 import io.github.pasindu9999.orderflow.messaging.MessageCodec;
+import io.github.pasindu9999.orderflow.messaging.error.DeadLetterErrorHandler;
 import io.github.pasindu9999.orderflow.messaging.testing.KafkaTopicReader;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.List;
@@ -167,6 +168,35 @@ class InventoryReservationIT {
 
         assertThat(reservations.findStatus(orderId)).contains(ReservationStatus.REJECTED);
         assertThat(stock.find(mug)).contains(new StockLevel(mug, 1, 0));
+    }
+
+    @Test
+    void shouldDeadLetterPoisonCommandAndKeepConsuming_whenRecordIsNotAnEnvelope() {
+        createStock(mug, 10);
+
+        sendRaw("{ this is not an envelope");
+        send(new ReserveInventory(orderId, List.of(new ReserveInventory.Line(mug, 1)))); // same key, same partition
+
+        assertThat(awaitSingleReply().payload()).as("the partition isn't blocked").isEqualTo(new InventoryReserved(orderId));
+        assertThat(await().atMost(15, SECONDS).until(this::deadLetters, r -> !r.isEmpty()))
+                .containsExactly("{ this is not an envelope");
+    }
+
+    @Test
+    void shouldDeadLetterWithoutTouchingStock_whenCommandHasNoLines() {
+        createStock(mug, 10);
+
+        send(new ReserveInventory(orderId, List.of())); // valid envelope, invalid payload: NonRetryableMessageException
+
+        assertThat(await().atMost(15, SECONDS).until(this::deadLetters, r -> !r.isEmpty())).hasSize(1);
+        assertThat(reservations.findStatus(orderId)).isEmpty();
+        assertThat(replies()).isEmpty();
+    }
+
+    private List<String> deadLetters() {
+        return KafkaTopicReader.readKey(kafkaAdmin.getConfigurationProperties(),
+                        Topics.INVENTORY_COMMANDS + DeadLetterErrorHandler.DLT_SUFFIX, orderId.toString())
+                .stream().map(r -> r.value()).toList();
     }
 
     private Envelope send(Message command) {

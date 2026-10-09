@@ -348,6 +348,7 @@ Business handlers declare `@Transactional(propagation = MANDATORY)`: they can on
 - `DeadLetterPublishingRecoverer` sends the record to `<topic>.DLT` on the same partition, with headers holding the original topic, partition and offset plus the exception class and message.
 - An order whose command is parked in the DLT is still brought to a terminal state by the **saga timeout** (§3.3).
 - Replaying from the DLT is safe because `messageId` is kept and consumers are idempotent.
+- One `CommonErrorHandler` bean from `platform-messaging` (`DeadLetterErrorHandler`), which Spring Boot applies to every listener. The budget is configurable under `orderflow.consumer.retry.*`. Each dead-lettered record increments `messaging.dlt.published{topic=…}` and is logged at ERROR.
 
 ### 7.4 Saga timeout
 

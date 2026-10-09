@@ -15,6 +15,7 @@ import io.github.pasindu9999.orderflow.contracts.payment.PaymentSucceeded;
 import io.github.pasindu9999.orderflow.contracts.payment.ProcessPayment;
 import io.github.pasindu9999.orderflow.messaging.Envelope;
 import io.github.pasindu9999.orderflow.messaging.MessageCodec;
+import io.github.pasindu9999.orderflow.messaging.error.DeadLetterErrorHandler;
 import io.github.pasindu9999.orderflow.messaging.testing.KafkaTopicReader;
 import io.github.pasindu9999.orderflow.order.TestcontainersConfiguration;
 import io.github.pasindu9999.orderflow.order.app.OrderService;
@@ -176,6 +177,19 @@ class OrderSagaIT {
 
         assertThat(order().version()).isEqualTo(versionBefore);
         assertThat(outboxTypes()).as("nothing to release: inventory never reserved").containsExactly("ReserveInventory");
+    }
+
+    @Test
+    void shouldDeadLetterReply_whenOrderIsUnknown() {
+        UUID unknown = UUID.randomUUID();
+        kafka.send(Topics.INVENTORY_EVENTS, unknown.toString(), codec.encode(codec.wrap(new InventoryReserved(unknown), null))).join();
+
+        List<String> parked = await().atMost(15, SECONDS).until(
+                () -> KafkaTopicReader.readKey(kafkaAdmin.getConfigurationProperties(),
+                                Topics.INVENTORY_EVENTS + DeadLetterErrorHandler.DLT_SUFFIX, unknown.toString())
+                        .stream().map(r -> r.value()).toList(),
+                r -> !r.isEmpty());
+        assertThat(parked).hasSize(1);
     }
 
     private void awaitPayment() {

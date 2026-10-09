@@ -6,7 +6,7 @@ Read first: `docs/ARCHITECTURE.md`, `docs/adr/`, `docs/PLAN.md`.
 
 ## Working agreement
 
-- **Phase: implementation.** `docs/PLAN.md` was approved on 2026-10-08. Current day: **Day 7** done (`e2e-tests`: all three services in one JVM). Next: **Day 8** (retry, backoff and DLT). Deliberately deferred: `OrderSaga` ignores (WARN) late replies on a cancelled order (`InventoryReserved` → `ReleaseInventory` is Day 9, `PaymentSucceeded` → `RefundPayment` is Day 10), and payment-service doesn't check `expiresAt` yet (Day 10).
+- **Phase: implementation.** `docs/PLAN.md` was approved on 2026-10-08. Current day: **Day 8** done (shared `DeadLetterErrorHandler`: backoff, classification, `<topic>.DLT`). Next: **Day 9** (crash scenarios, late `InventoryReserved`, MDC in logs → M3). Deliberately deferred: `OrderSaga` ignores (WARN) late replies on a cancelled order (`InventoryReserved` → `ReleaseInventory` is Day 9, `PaymentSucceeded` → `RefundPayment` is Day 10), and payment-service doesn't check `expiresAt` yet (Day 10).
 - **Never commit or push automatically.** The owner reviews and commits.
 - Work follows `docs/PLAN.md` day by day. Don't start the next day's scope early.
 - Every design decision must be defensible in an interview. If you change one, update the relevant ADR (or add a new one) in the same commit, including the options considered and the strongest argument against.

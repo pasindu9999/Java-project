@@ -3,6 +3,8 @@ package io.github.pasindu9999.orderflow.messaging.autoconfigure;
 import io.github.pasindu9999.orderflow.contracts.MessageCatalog;
 import io.github.pasindu9999.orderflow.messaging.FaultInjector;
 import io.github.pasindu9999.orderflow.messaging.MessageCodec;
+import io.github.pasindu9999.orderflow.messaging.error.ConsumerRetryProperties;
+import io.github.pasindu9999.orderflow.messaging.error.DeadLetterErrorHandler;
 import io.github.pasindu9999.orderflow.messaging.inbox.IdempotentMessageHandler;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -21,14 +23,15 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.listener.CommonErrorHandler;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * Gives every service the same codec, outbox writer and relay, and idempotent inbox handler.
- * Registered in {@code AutoConfiguration.imports}.
+ * Gives every service the same codec, outbox writer and relay, idempotent inbox handler and consumer error
+ * handler. Registered in {@code AutoConfiguration.imports}.
  */
 @AutoConfiguration
-@EnableConfigurationProperties(OutboxProperties.class)
+@EnableConfigurationProperties({OutboxProperties.class, ConsumerRetryProperties.class})
 public class MessagingAutoConfiguration {
 
     @Bean
@@ -70,5 +73,13 @@ public class MessagingAutoConfiguration {
     IdempotentMessageHandler idempotentMessageHandler(JdbcClient jdbc, TransactionTemplate transaction,
                                                       MessageCodec codec, ObjectProvider<MeterRegistry> meters) {
         return new IdempotentMessageHandler(jdbc, transaction, codec, meters.getIfAvailable(SimpleMeterRegistry::new));
+    }
+
+    /** Spring Boot applies a single {@link CommonErrorHandler} bean to every listener container. */
+    @Bean
+    @ConditionalOnMissingBean(CommonErrorHandler.class)
+    CommonErrorHandler deadLetterErrorHandler(KafkaTemplate<String, String> kafka, ConsumerRetryProperties retry,
+                                              ObjectProvider<MeterRegistry> meters) {
+        return DeadLetterErrorHandler.create(kafka, retry, meters.getIfAvailable(SimpleMeterRegistry::new));
     }
 }

@@ -6,8 +6,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Test {@link FaultInjector}: arm a point, and the n-th time execution reaches it, it throws {@link InjectedFault}.
- * Each arming fires once. Call {@link #reset()} after each test so a fault never leaks into the next one.
+ * Test {@link FaultInjector}: arm a point, and execution reaching it throws {@link InjectedFault}, a plain
+ * (so retryable) runtime exception. Call {@link #reset()} after each test so a fault never leaks into the next one.
  */
 public class ProgrammableFaultInjector implements FaultInjector {
 
@@ -19,6 +19,7 @@ public class ProgrammableFaultInjector implements FaultInjector {
     }
 
     private final Map<String, AtomicInteger> callsUntilFailure = new ConcurrentHashMap<>();
+    private final Map<String, AtomicInteger> failuresLeft = new ConcurrentHashMap<>();
 
     public void failOnce(String point) {
         failOnCall(point, 1);
@@ -29,8 +30,14 @@ public class ProgrammableFaultInjector implements FaultInjector {
         callsUntilFailure.put(point, new AtomicInteger(call));
     }
 
+    /** Throws the next {@code times} times {@code point} is reached, like a dependency that is down for a while. */
+    public void failTimes(String point, int times) {
+        failuresLeft.put(point, new AtomicInteger(times));
+    }
+
     public void reset() {
         callsUntilFailure.clear();
+        failuresLeft.clear();
     }
 
     @Override
@@ -38,6 +45,10 @@ public class ProgrammableFaultInjector implements FaultInjector {
         AtomicInteger remaining = callsUntilFailure.get(point);
         if (remaining != null && remaining.decrementAndGet() == 0) {
             callsUntilFailure.remove(point);
+            throw new InjectedFault(point);
+        }
+        AtomicInteger left = failuresLeft.get(point);
+        if (left != null && left.getAndDecrement() > 0) {
             throw new InjectedFault(point);
         }
     }

@@ -119,6 +119,18 @@ class PaymentIT {
     }
 
     @Test
+    void shouldDeclineAsExpiredWithoutCharging_whenCommandArrivesAfterTheOrderDeadline() {
+        // e.g. payment-service was down; the order has timed out by the time the command is consumed
+        send(new ProcessPayment(orderId, customerId, new BigDecimal("20.00"), "EUR", Instant.now().minusSeconds(5)));
+
+        assertThat(awaitReplies(1).getFirst().payload())
+                .isEqualTo(new PaymentFailed(orderId, PaymentFailed.Reason.EXPIRED));
+        Payment payment = payments.findByOrderId(orderId).orElseThrow();
+        assertThat(payment.status()).isEqualTo(PaymentStatus.FAILED);
+        assertThat(payment.failureReason()).isEqualTo(DeclineReason.EXPIRED);
+    }
+
+    @Test
     void shouldChargeOnce_whenSameCommandIsDeliveredTwice() {
         double duplicatesBefore = duplicatesSkipped();
         String record = codec.encode(codec.wrap(processPayment("20.00"), null));

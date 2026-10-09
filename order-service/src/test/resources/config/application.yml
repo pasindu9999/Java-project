@@ -1,0 +1,8 @@
+# Test-only overrides, merged on top of src/main/resources/application.yml (Spring Boot loads classpath:/config/
+# after classpath:/, so these win while everything else stays the real config).
+
+orderflow:
+  saga:
+    # Tests call OrderTimeoutSweeper.sweep() themselves, so every step is deterministic.
+    # OrderTimeoutScheduleIT switches it back on to prove the schedule itself works.
+    sweeper-enabled: false

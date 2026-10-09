@@ -104,6 +104,30 @@ GET {{orderService}}/orders/{{blocked.response.body.orderId}}
 ### D3. ... its payment: FAILED, failureReason DECLINED_BLOCKED_CUSTOMER
 GET {{paymentService}}/payments?orderId={{blocked.response.body.orderId}}
 
+### E0. Saga timeout: STOP payment-service first. Stock before:
+GET {{inventoryService}}/stock/MUG-RED
+
+### E1. Place an order while payment-service is down -> AWAITING_PAYMENT, 3 x MUG-RED reserved
+# @name timedOut
+POST {{orderService}}/orders
+Content-Type: application/json
+Idempotency-Key: demo-timeout-001
+
+{
+  "customerId": "{{customerId}}",
+  "currency": "EUR",
+  "lines": [ { "sku": "MUG-RED", "quantity": 3, "unitPrice": "12.50" } ]
+}
+
+### E2. ... about 35 s later (30 s deadline + one 5 s sweep): CANCELLED, cancelReason TIMEOUT
+GET {{orderService}}/orders/{{timedOut.response.body.orderId}}
+
+### E3. ... stock is back to the E0 level (the sweeper sent ReleaseInventory)
+GET {{inventoryService}}/stock/MUG-RED
+
+### E4. Start payment-service again: it consumes the stale ProcessPayment and declines it -> FAILED, EXPIRED
+GET {{paymentService}}/payments?orderId={{timedOut.response.body.orderId}}
+
 #####################################################################################################
 # Order API behaviour
 #####################################################################################################

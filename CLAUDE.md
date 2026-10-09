@@ -6,7 +6,7 @@ Read first: `docs/ARCHITECTURE.md`, `docs/adr/`, `docs/PLAN.md`.
 
 ## Working agreement
 
-- **Phase: implementation.** `docs/PLAN.md` was approved on 2026-10-08. Current day: **Day 9** done (crash points, late `InventoryReserved` → `ReleaseInventory`, optimistic-conflict retry, `[orderId messageId]` in logs; **M3 reached**). Next: **Day 10** (timeout sweeper, payment expiry, late `PaymentSucceeded` → refund). Deliberately deferred to Day 10: `OrderSaga` still ignores (WARN) a late `PaymentSucceeded` on a cancelled order (→ `RefundPayment`), and payment-service doesn't check `expiresAt` yet.
+- **Phase: implementation.** `docs/PLAN.md` was approved on 2026-10-08. Current day: **Day 10** done (`OrderTimeoutSweeper`, payment declines expired commands, late `PaymentSucceeded` → `RefundPayment`). Next: **Day 11** (operability and containerisation).
 - **Never commit or push automatically.** The owner reviews and commits.
 - Work follows `docs/PLAN.md` day by day. Don't start the next day's scope early.
 - Every design decision must be defensible in an interview. If you change one, update the relevant ADR (or add a new one) in the same commit, including the options considered and the strongest argument against.
@@ -85,6 +85,7 @@ Maven groupId: `io.github.pasindu9999.orderflow`. Base package: `io.github.pasin
 - Each test uses fresh random `orderId`s/SKUs. Never depend on another test's data or order.
 - Faults are injected through the `FaultInjector` bean (a no-op in production), never through `if (test)` branches in production code. Fault points are named constants on the class that calls them (e.g. `OutboxRelay.AFTER_SEND`, `IdempotentMessageHandler.AFTER_COMMIT`). `ProgrammableFaultInjector` can throw once (`failOnce`), several times (`failTimes`) or run an action such as a concurrent writer (`runOnce`); assert `isArmed(point)` is false so a test proves its fault really fired.
 - Shared test helpers come from the `platform-messaging` **test-jar**: `ProgrammableFaultInjector` (arm a point; call `reset()` in `@AfterEach`) and `KafkaTopicReader` (reads a topic without a consumer group; filter by orderId). Each service registers `ProgrammableFaultInjector` in its `TestcontainersConfiguration`, so all its ITs share one Spring context.
+- order-service tests run with `orderflow.saga.sweeper-enabled=false` (from `src/test/resources/config/application.yml`, which Boot merges on top of the main `application.yml`). To test a timeout, move the order's `deadline_at` into the past and call `OrderTimeoutSweeper.sweep()`.
 - Singleton containers per module. Locally, enable reuse in `~/.testcontainers.properties`: `testcontainers.reuse.enable=true`.
 - `e2e-tests` boots the three services with `SpringApplicationBuilder`, each reading its own module's `src/main/resources/` through `spring.config.location` (every service jar has a root `application.yml`, so the classpath can't tell them apart). It drives the system only through the REST APIs; the one shortcut is inserting each test's stock rows into inventory_db.
 - Done = `./mvnw verify` green locally **and** in CI.

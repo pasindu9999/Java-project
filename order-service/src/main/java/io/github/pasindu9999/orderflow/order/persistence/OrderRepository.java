@@ -96,6 +96,20 @@ public class OrderRepository {
         }
     }
 
+    /** Open orders whose saga deadline has passed, oldest deadline first. Served by orders_open_deadline_idx. */
+    public List<UUID> findExpiredOpenOrderIds(Instant now, int limit) {
+        return jdbc.sql("""
+                        SELECT id FROM orders
+                        WHERE status IN ('PENDING', 'AWAITING_PAYMENT') AND deadline_at < :now
+                        ORDER BY deadline_at
+                        LIMIT :limit
+                        """)
+                .param("now", utc(now))
+                .param("limit", limit)
+                .query(UUID.class)
+                .list();
+    }
+
     public Optional<Order> findById(UUID id) {
         return findOne("WHERE id = :id", Map.of("id", id));
     }

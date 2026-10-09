@@ -355,10 +355,11 @@ Business handlers declare `@Transactional(propagation = MANDATORY)`: they can on
 ### 7.4 Saga timeout
 
 `OrderTimeoutSweeper` runs every 5 s:
-- It selects orders with `status IN (PENDING, AWAITING_PAYMENT) AND deadline_at < now()`, at most 50 at a time.
-- For each one it applies the `TIMEOUT` transition from §3.3, using the optimistic update.
+- It selects orders with `status IN (PENDING, AWAITING_PAYMENT) AND deadline_at < now()`, oldest deadline first, at most 50 at a time.
+- For each one, in its own transaction, it applies the `TIMEOUT` transition from §3.3 (`CANCELLED` + `ReleaseInventory`) with the optimistic update.
+- If a reply changed the order in between, the version check fails and the sweeper skips it. The next run re-evaluates it from its new state. If the sweeper commits first, the reply handler's update fails instead, and the retried reply takes the late-reply row of §3.3.
 
-The deadline defaults to `PT30S` (`orderflow.saga.timeout`). Tests use a few seconds.
+The deadline defaults to `PT30S` (`orderflow.saga.timeout`); the schedule is `orderflow.saga.sweep-interval` and `sweep-batch-size`. ITs switch the schedule off (`orderflow.saga.sweeper-enabled=false`), move an order's deadline into the past and call `sweep()` themselves; `OrderTimeoutScheduleIT` runs the real schedule with a 2 s timeout.
 
 ### 7.5 Threads
 

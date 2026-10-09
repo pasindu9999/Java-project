@@ -18,6 +18,7 @@ import io.github.pasindu9999.orderflow.payment.domain.PaymentPolicy.Decline;
 import io.github.pasindu9999.orderflow.payment.domain.PaymentPolicy.ProviderUnavailable;
 import io.github.pasindu9999.orderflow.payment.domain.PaymentStatus;
 import io.github.pasindu9999.orderflow.payment.persistence.PaymentRepository;
+import java.time.Clock;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -37,13 +38,15 @@ public class PaymentService {
     private final PaymentRepository payments;
     private final OutboxWriter outbox;
     private final PaymentPolicy.Rules rules;
+    private final Clock clock;
     /** Charge attempts per order, for the flaky-amount rule. In memory on purpose: it's only a simulator. */
     private final Map<UUID, Integer> attempts = new ConcurrentHashMap<>();
 
-    public PaymentService(PaymentRepository payments, OutboxWriter outbox, PaymentProperties properties) {
+    public PaymentService(PaymentRepository payments, OutboxWriter outbox, PaymentProperties properties, Clock clock) {
         this.payments = payments;
         this.outbox = outbox;
         this.rules = properties.rules();
+        this.clock = clock;
     }
 
     /** MANDATORY: only ever called from the idempotent inbox handler, which owns the transaction. */
@@ -66,7 +69,9 @@ public class PaymentService {
         }
 
         int attempt = attempts.merge(orderId, 1, Integer::sum);
-        switch (PaymentPolicy.decide(command.customerId(), command.amount(), attempt, rules)) {
+        var decision = PaymentPolicy.decide(command.customerId(), command.amount(), command.expiresAt(), clock.instant(),
+                attempt, rules);
+        switch (decision) {
             case Approve approve -> {
                 Payment payment = newPayment(command, PaymentStatus.SUCCEEDED, null);
                 payments.insert(payment);
@@ -101,7 +106,7 @@ public class PaymentService {
     }
 
     private static void validate(ProcessPayment command) {
-        if (command.customerId() == null || command.currency() == null
+        if (command.customerId() == null || command.currency() == null || command.expiresAt() == null
                 || command.amount() == null || command.amount().signum() <= 0) {
             throw new NonRetryableMessageException("Invalid ProcessPayment for order " + command.orderId());
         }
@@ -114,6 +119,7 @@ public class PaymentService {
 
     private static PaymentFailed.Reason failedReason(DeclineReason reason) {
         return switch (reason) {
+            case EXPIRED -> PaymentFailed.Reason.EXPIRED;
             case DECLINED_LIMIT -> PaymentFailed.Reason.DECLINED_LIMIT;
             case DECLINED_BLOCKED_CUSTOMER -> PaymentFailed.Reason.DECLINED_BLOCKED_CUSTOMER;
         };

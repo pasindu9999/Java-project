@@ -37,6 +37,9 @@ spring:
 orderflow:
   saga:
     timeout: PT30S
+    # OrderTimeoutSweeper: how often it looks for expired orders, and how many it cancels per run.
+    sweep-interval: PT5S
+    sweep-batch-size: 50
 
 logging:
   pattern:

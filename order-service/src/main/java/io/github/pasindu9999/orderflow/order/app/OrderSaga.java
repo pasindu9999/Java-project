@@ -9,6 +9,7 @@ import io.github.pasindu9999.orderflow.contracts.payment.PaymentFailed;
 import io.github.pasindu9999.orderflow.contracts.payment.PaymentRefunded;
 import io.github.pasindu9999.orderflow.contracts.payment.PaymentSucceeded;
 import io.github.pasindu9999.orderflow.contracts.payment.ProcessPayment;
+import io.github.pasindu9999.orderflow.contracts.payment.RefundPayment;
 import io.github.pasindu9999.orderflow.messaging.Envelope;
 import io.github.pasindu9999.orderflow.messaging.FaultInjector;
 import io.github.pasindu9999.orderflow.messaging.NonRetryableMessageException;
@@ -32,9 +33,6 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>Every status change is an optimistic update. If another writer (the timeout sweeper) changed the order in
  * between, the update throws a retryable exception and the redelivered reply is evaluated against the new state.
- *
- * <p>A late {@code PaymentSucceeded} on a cancelled order is still ignored; turning it into {@code RefundPayment}
- * is Day 10 (docs/PLAN.md).
  */
 @Service
 public class OrderSaga {
@@ -69,7 +67,7 @@ public class OrderSaga {
     @Transactional(propagation = Propagation.MANDATORY)
     public void onPaymentEvent(Envelope envelope) {
         switch (envelope.payloadAs(PaymentEvent.class)) {
-            case PaymentSucceeded event -> onPaymentSucceeded(load(event.orderId()));
+            case PaymentSucceeded event -> onPaymentSucceeded(load(event.orderId()), envelope.messageId());
             case PaymentFailed event -> onPaymentFailed(load(event.orderId()), event, envelope.messageId());
             case PaymentRefunded event -> onPaymentRefunded(load(event.orderId()));
         }
@@ -102,13 +100,20 @@ public class OrderSaga {
         }
     }
 
-    private void onPaymentSucceeded(Order order) {
+    private void onPaymentSucceeded(Order order, UUID causationId) {
         switch (order.status()) {
             case AWAITING_PAYMENT -> {
                 save(order.confirm(now()));
                 log.info("Order {} confirmed", order.id());
             }
-            case PENDING, CONFIRMED, CANCELLED -> ignore(order, "PaymentSucceeded");
+            case CANCELLED -> {
+                // Late reply: the charge landed after the order was cancelled (e.g. timed out). Payment is the
+                // pivot, so the only way back is a refund (ARCHITECTURE §8.7). A refund with nothing to refund
+                // is a no-op on payment's side, so this never needs to check why the order was cancelled.
+                outbox.write(new RefundPayment(order.id(), RefundPayment.Reason.LATE_PAYMENT), causationId);
+                log.info("Order {} is already cancelled ({}); refunding its late payment", order.id(), order.cancelReason());
+            }
+            case PENDING, CONFIRMED -> ignore(order, "PaymentSucceeded");
         }
     }
 

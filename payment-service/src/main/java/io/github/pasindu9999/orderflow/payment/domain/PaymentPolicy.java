@@ -1,14 +1,13 @@
 package io.github.pasindu9999.orderflow.payment.domain;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.Set;
 import java.util.UUID;
 
 /**
- * The deterministic payment simulator (ARCHITECTURE §6.4). Pure function: the caller counts attempts and turns
- * the decision into rows, replies or a retryable exception.
- *
- * <p>Command expiry (§6.4 rule 1) is added on Day 10 together with the saga timeout.
+ * The deterministic payment simulator (ARCHITECTURE §6.4). Pure function: the caller supplies the time and the
+ * attempt count, and turns the decision into rows, replies or a retryable exception.
  */
 public final class PaymentPolicy {
 
@@ -41,11 +40,19 @@ public final class PaymentPolicy {
     }
 
     /**
-     * Rules are checked in order: blocked customer, then the amount limit, then the flaky amount.
+     * Rules are checked in order: expiry, blocked customer, the amount limit, the flaky amount.
+     *
+     * <p>Expiry comes first: once {@code expiresAt} (the order's saga deadline) has passed, the order has been or
+     * is about to be cancelled, so charging it would only create a refund. Clocks on different hosts can drift,
+     * so this is a best-effort guard; the late-payment refund is what guarantees correctness (§3.3).
      *
      * @param attempt 1 for the first evaluation of this order's charge, 2 for the first retry, and so on
      */
-    public static Decision decide(UUID customerId, BigDecimal amount, int attempt, Rules rules) {
+    public static Decision decide(UUID customerId, BigDecimal amount, Instant expiresAt, Instant now, int attempt,
+                                  Rules rules) {
+        if (now.isAfter(expiresAt)) {
+            return new Decline(DeclineReason.EXPIRED);
+        }
         if (rules.blockedCustomers().contains(customerId)) {
             return new Decline(DeclineReason.DECLINED_BLOCKED_CUSTOMER);
         }

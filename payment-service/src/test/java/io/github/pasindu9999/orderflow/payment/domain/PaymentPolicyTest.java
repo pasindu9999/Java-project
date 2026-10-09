@@ -6,12 +6,15 @@ import io.github.pasindu9999.orderflow.payment.domain.PaymentPolicy.Approve;
 import io.github.pasindu9999.orderflow.payment.domain.PaymentPolicy.Decline;
 import io.github.pasindu9999.orderflow.payment.domain.PaymentPolicy.ProviderUnavailable;
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class PaymentPolicyTest {
 
+    final Instant now = Instant.parse("2026-10-09T10:00:00Z");
+    final Instant notExpired = now.plusSeconds(20);
     final UUID customer = UUID.randomUUID();
     final UUID blocked = UUID.randomUUID();
     final PaymentPolicy.Rules rules = new PaymentPolicy.Rules(
@@ -20,6 +23,23 @@ class PaymentPolicyTest {
     @Test
     void shouldApprove_whenNoRuleApplies() {
         assertThat(decide(customer, "37.50", 1)).isEqualTo(new Approve());
+    }
+
+    @Test
+    void shouldDeclineAsExpired_whenDeadlineHasPassed() {
+        assertThat(PaymentPolicy.decide(customer, new BigDecimal("37.50"), now.minusMillis(1), now, 1, rules))
+                .isEqualTo(new Decline(DeclineReason.EXPIRED));
+    }
+
+    @Test
+    void shouldApprove_whenDeadlineIsExactlyNow() {
+        assertThat(PaymentPolicy.decide(customer, new BigDecimal("37.50"), now, now, 1, rules)).isEqualTo(new Approve());
+    }
+
+    @Test
+    void shouldReportExpiryFirst_whenCommandIsExpiredAndCustomerIsBlocked() {
+        assertThat(PaymentPolicy.decide(blocked, new BigDecimal("5000.00"), now.minusSeconds(1), now, 1, rules))
+                .isEqualTo(new Decline(DeclineReason.EXPIRED));
     }
 
     @Test
@@ -45,6 +65,6 @@ class PaymentPolicyTest {
     }
 
     private PaymentPolicy.Decision decide(UUID customerId, String amount, int attempt) {
-        return PaymentPolicy.decide(customerId, new BigDecimal(amount), attempt, rules);
+        return PaymentPolicy.decide(customerId, new BigDecimal(amount), notExpired, now, attempt, rules);
     }
 }

@@ -1,6 +1,6 @@
 # orderflow: Delivery plan (12-14 days, 6-8 h/day)
 
-> Status: **approved 2026-10-08.** Days 0-5 are done (M1 reached). Next: Day 6 (payment and full saga → M2).
+> Status: **approved 2026-10-08.** Days 0-6 are done (M1 and M2 reached). Next: Day 7 (end-to-end test module).
 
 ## Ground rules
 

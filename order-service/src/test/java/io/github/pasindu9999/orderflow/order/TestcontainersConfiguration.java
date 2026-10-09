@@ -41,4 +41,10 @@ public class TestcontainersConfiguration {
     NewTopic inventoryEvents() {
         return TopicBuilder.name(Topics.INVENTORY_EVENTS).partitions(3).replicas(1).build();
     }
+
+    /** In the real system payment-service declares this topic. Here the test plays payment-service. */
+    @Bean
+    NewTopic paymentEvents() {
+        return TopicBuilder.name(Topics.PAYMENT_EVENTS).partitions(3).replicas(1).build();
+    }
 }

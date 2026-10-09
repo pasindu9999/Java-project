@@ -6,7 +6,7 @@ Read first: `docs/ARCHITECTURE.md`, `docs/adr/`, `docs/PLAN.md`.
 
 ## Working agreement
 
-- **Phase: implementation.** `docs/PLAN.md` was approved on 2026-10-08. Current day: **Day 5** done (inventory release + tombstone, `OrderSaga` handles inventory replies). Next: **Day 6** (payment-service, payment replies → M2). `OrderSaga` still ignores (WARN) a late `InventoryReserved` on a cancelled order; turning it into `ReleaseInventory` is Day 9.
+- **Phase: implementation.** `docs/PLAN.md` was approved on 2026-10-08. Current day: **Day 6** done (payment-service, payment replies, `demo.http`; **M2 reached**). Next: **Day 7** (e2e-tests module). Deliberately deferred: `OrderSaga` ignores (WARN) late replies on a cancelled order (`InventoryReserved` → `ReleaseInventory` is Day 9, `PaymentSucceeded` → `RefundPayment` is Day 10), and payment-service doesn't check `expiresAt` yet (Day 10).
 - **Never commit or push automatically.** The owner reviews and commits.
 - Work follows `docs/PLAN.md` day by day. Don't start the next day's scope early.
 - Every design decision must be defensible in an interview. If you change one, update the relevant ADR (or add a new one) in the same commit, including the options considered and the strongest argument against.

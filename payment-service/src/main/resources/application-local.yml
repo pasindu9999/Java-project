@@ -1,0 +1,5 @@
+# `local` profile: a blocked customer for the demo (scripts/demo.http).
+orderflow:
+  payment:
+    blocked-customers:
+      - 0b10c4ed-0000-4000-8000-000000000001

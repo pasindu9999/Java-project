@@ -13,8 +13,32 @@ spring:
     locations: classpath:db/migration/payment
   kafka:
     bootstrap-servers: localhost:9092
+    producer:
+      acks: all
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      properties:
+        enable.idempotence: true
     consumer:
       group-id: payment-service
+      # A new consumer group starts from the oldest message, so nothing sent before it first joined is lost.
+      auto-offset-reset: earliest
+      # Offsets are committed by the listener container, only after the record's DB transaction commits.
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    listener:
+      # Commit after every record, so a crash re-delivers at most the record being processed (ADR-0003).
+      ack-mode: record
+      # One consumer thread per partition.
+      concurrency: 3
+
+# Simulator rules (ARCHITECTURE §6.4).
+orderflow:
+  payment:
+    decline-above: 1000.00
+    transient-failure-amount: 13.13
+    transient-failures: 2
 
 management:
   endpoints:

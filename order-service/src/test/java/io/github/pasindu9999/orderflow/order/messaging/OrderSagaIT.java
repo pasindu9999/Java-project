@@ -7,7 +7,11 @@ import static org.awaitility.Awaitility.await;
 import io.github.pasindu9999.orderflow.contracts.Message;
 import io.github.pasindu9999.orderflow.contracts.Topics;
 import io.github.pasindu9999.orderflow.contracts.inventory.InventoryRejected;
+import io.github.pasindu9999.orderflow.contracts.inventory.InventoryEvent;
 import io.github.pasindu9999.orderflow.contracts.inventory.InventoryReserved;
+import io.github.pasindu9999.orderflow.contracts.inventory.ReleaseInventory;
+import io.github.pasindu9999.orderflow.contracts.payment.PaymentFailed;
+import io.github.pasindu9999.orderflow.contracts.payment.PaymentSucceeded;
 import io.github.pasindu9999.orderflow.contracts.payment.ProcessPayment;
 import io.github.pasindu9999.orderflow.messaging.Envelope;
 import io.github.pasindu9999.orderflow.messaging.MessageCodec;
@@ -33,8 +37,9 @@ import org.springframework.kafka.core.KafkaAdmin;
 import org.springframework.kafka.core.KafkaTemplate;
 
 /**
- * The inventory rows of the reply handling table (ARCHITECTURE §3.3). The test plays inventory-service: it
- * publishes replies to {@code inventory.events} and checks the order's state and the commands it emitted.
+ * The reply handling table (ARCHITECTURE §3.3). The test plays inventory-service and payment-service: it publishes
+ * replies to {@code inventory.events} and {@code payment.events} and checks the order's state and the commands it
+ * emitted.
  */
 @SpringBootTest
 @Import(TestcontainersConfiguration.class)
@@ -125,15 +130,71 @@ class OrderSagaIT {
         assertThat(outboxTypes()).containsExactly("ReserveInventory");
     }
 
+    @Test
+    void shouldConfirm_whenPaymentSucceeds() {
+        awaitPayment();
+
+        Envelope reply = reply(new PaymentSucceeded(orderId, UUID.randomUUID(), new BigDecimal("33.00"), "EUR"));
+        await().atMost(15, SECONDS).until(() -> processed(reply));
+
+        assertThat(order().status()).isEqualTo(OrderStatus.CONFIRMED);
+        assertThat(order().version()).isEqualTo(2);
+        assertThat(outboxTypes()).as("confirming needs no command").containsExactly("ReserveInventory", "ProcessPayment");
+    }
+
+    @Test
+    void shouldCancelAndReleaseStock_whenPaymentFails() {
+        awaitPayment();
+
+        Envelope reply = reply(new PaymentFailed(orderId, PaymentFailed.Reason.DECLINED_LIMIT));
+        await().atMost(15, SECONDS).until(() -> processed(reply));
+
+        assertThat(order().status()).isEqualTo(OrderStatus.CANCELLED);
+        assertThat(order().cancelReason()).isEqualTo(CancelReason.PAYMENT_DECLINED);
+        assertThat(outboxTypes()).containsExactly("ReserveInventory", "ProcessPayment", "ReleaseInventory");
+        Envelope release = lastOutboxMessage();
+        assertThat(release.payload()).isEqualTo(new ReleaseInventory(orderId, ReleaseInventory.Reason.PAYMENT_DECLINED));
+        assertThat(release.causationId()).isEqualTo(reply.messageId());
+    }
+
+    @Test
+    void shouldIgnorePaymentReply_whenOrderIsStillPending() {
+        Envelope reply = reply(new PaymentSucceeded(orderId, UUID.randomUUID(), new BigDecimal("33.00"), "EUR"));
+        await().atMost(15, SECONDS).until(() -> processed(reply));
+
+        assertThat(order().status()).isEqualTo(OrderStatus.PENDING);
+        assertThat(order().version()).isZero();
+    }
+
+    @Test
+    void shouldOnlyRecordLatePaymentFailure_whenOrderIsAlreadyCancelled() {
+        cancelOutOfStock();
+        long versionBefore = order().version();
+
+        Envelope late = reply(new PaymentFailed(orderId, PaymentFailed.Reason.EXPIRED));
+        await().atMost(15, SECONDS).until(() -> processed(late));
+
+        assertThat(order().version()).isEqualTo(versionBefore);
+        assertThat(outboxTypes()).as("nothing to release: inventory never reserved").containsExactly("ReserveInventory");
+    }
+
+    private void awaitPayment() {
+        Envelope reserved = reply(new InventoryReserved(orderId));
+        await().atMost(15, SECONDS).until(() -> processed(reserved));
+        assertThat(order().status()).isEqualTo(OrderStatus.AWAITING_PAYMENT);
+    }
+
     private void cancelOutOfStock() {
         Envelope rejected = reply(new InventoryRejected(orderId, InventoryRejected.Reason.OUT_OF_STOCK, List.of()));
         await().atMost(15, SECONDS).until(() -> processed(rejected));
         assertThat(order().status()).isEqualTo(OrderStatus.CANCELLED);
     }
 
+    /** Publishes a fake reply on the topic its real producer would use. */
     private Envelope reply(Message event) {
         Envelope envelope = codec.wrap(event, null);
-        sendRaw(codec.encode(envelope));
+        String topic = event instanceof InventoryEvent ? Topics.INVENTORY_EVENTS : Topics.PAYMENT_EVENTS;
+        kafka.send(topic, orderId.toString(), codec.encode(envelope)).join();
         return envelope;
     }
 
@@ -145,9 +206,9 @@ class OrderSagaIT {
         return orders.findById(orderId).orElseThrow();
     }
 
+    /** Every reply has a fresh messageId, so the inbox row alone identifies it, whichever listener handled it. */
     private boolean processed(Envelope envelope) {
-        return jdbc.sql("SELECT count(*) = 1 FROM processed_message WHERE consumer = :consumer AND message_id = :id")
-                .param("consumer", InventoryEventListener.CONSUMER)
+        return jdbc.sql("SELECT count(*) = 1 FROM processed_message WHERE message_id = :id")
                 .param("id", envelope.messageId())
                 .query(Boolean.class)
                 .single();
@@ -159,6 +220,14 @@ class OrderSagaIT {
                 .param("key", orderId.toString())
                 .query(String.class)
                 .list();
+    }
+
+    private Envelope lastOutboxMessage() {
+        String envelope = jdbc.sql("SELECT envelope::text FROM outbox WHERE message_key = :key ORDER BY id DESC LIMIT 1")
+                .param("key", orderId.toString())
+                .query(String.class)
+                .single();
+        return codec.decode(envelope);
     }
 
     private List<String> read(String topic) {

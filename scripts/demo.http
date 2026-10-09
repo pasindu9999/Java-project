@@ -1,16 +1,30 @@
 ### orderflow demo requests (VS Code REST Client / IntelliJ HTTP Client)
-# Prerequisites: docker compose up -d, then start order-service (port 8081).
-# Day 2 scope: orders are accepted and stay PENDING. The saga paths are added from Day 6.
+# Prerequisites: docker compose up -d, then start all three services with the `local` profile
+# (seed stock, and the blocked demo customer). See CLAUDE.md "Run locally".
+#
+# The saga is asynchronous: POST returns 202 with status PENDING, and the "read it back" request after it shows
+# the outcome a moment later. Keys are fixed, so running a POST again replays the same order; change the key
+# suffix to place a new one.
 
 @orderService = http://localhost:8081
+@inventoryService = http://localhost:8082
+@paymentService = http://localhost:8083
 @customerId = 2ceecac6-e0e2-4ce0-a0da-f1edfb0b3893
-@idempotencyKey = demo-key-001
+# Listed under orderflow.payment.blocked-customers in payment-service's application-local.yml
+@blockedCustomerId = 0b10c4ed-0000-4000-8000-000000000001
 
-### 1. Place an order -> 202 Accepted, status PENDING
-# @name placeOrder
+#####################################################################################################
+# Saga paths
+#####################################################################################################
+
+### A0. Stock before (compare after each path)
+GET {{inventoryService}}/stock/MUG-RED
+
+### A1. Happy path -> CONFIRMED, payment SUCCEEDED, 2 x MUG-RED moved to reserved
+# @name happy
 POST {{orderService}}/orders
 Content-Type: application/json
-Idempotency-Key: {{idempotencyKey}}
+Idempotency-Key: demo-happy-001
 
 {
   "customerId": "{{customerId}}",
@@ -21,13 +35,101 @@ Idempotency-Key: {{idempotencyKey}}
   ]
 }
 
-### 2. Read it back (polling target for the saga outcome)
+### A2. ... read it back: CONFIRMED
+GET {{orderService}}/orders/{{happy.response.body.orderId}}
+
+### A3. ... its payment: SUCCEEDED, amount "33.00"
+GET {{paymentService}}/payments?orderId={{happy.response.body.orderId}}
+
+### B1. Out of stock (TEA-BLACK has 0 units) -> CANCELLED (OUT_OF_STOCK), nothing reserved, never charged
+# @name outOfStock
+POST {{orderService}}/orders
+Content-Type: application/json
+Idempotency-Key: demo-out-of-stock-001
+
+{
+  "customerId": "{{customerId}}",
+  "currency": "EUR",
+  "lines": [
+    { "sku": "MUG-RED", "quantity": 1, "unitPrice": "12.50" },
+    { "sku": "TEA-BLACK", "quantity": 1, "unitPrice": "6.00" }
+  ]
+}
+
+### B2. ... read it back: CANCELLED, cancelReason OUT_OF_STOCK
+GET {{orderService}}/orders/{{outOfStock.response.body.orderId}}
+
+### B3. ... no payment: 404
+GET {{paymentService}}/payments?orderId={{outOfStock.response.body.orderId}}
+
+### C0. Stock before the declined order
+GET {{inventoryService}}/stock/MUG-BLUE
+
+### C1. Declined over the limit (total 1500.00 > 1000.00) -> CANCELLED (PAYMENT_DECLINED), stock released
+# @name overLimit
+POST {{orderService}}/orders
+Content-Type: application/json
+Idempotency-Key: demo-over-limit-001
+
+{
+  "customerId": "{{customerId}}",
+  "currency": "EUR",
+  "lines": [ { "sku": "MUG-BLUE", "quantity": 1, "unitPrice": "1500.00" } ]
+}
+
+### C2. ... read it back: CANCELLED, cancelReason PAYMENT_DECLINED
+GET {{orderService}}/orders/{{overLimit.response.body.orderId}}
+
+### C3. ... its payment: FAILED, failureReason DECLINED_LIMIT
+GET {{paymentService}}/payments?orderId={{overLimit.response.body.orderId}}
+
+### C4. ... stock is back to the C0 level (reserved, then released by the compensation)
+GET {{inventoryService}}/stock/MUG-BLUE
+
+### D1. Blocked customer -> CANCELLED (PAYMENT_DECLINED), stock released
+# @name blocked
+POST {{orderService}}/orders
+Content-Type: application/json
+Idempotency-Key: demo-blocked-001
+
+{
+  "customerId": "{{blockedCustomerId}}",
+  "currency": "EUR",
+  "lines": [ { "sku": "MUG-BLUE", "quantity": 1, "unitPrice": "15.00" } ]
+}
+
+### D2. ... read it back: CANCELLED, cancelReason PAYMENT_DECLINED
+GET {{orderService}}/orders/{{blocked.response.body.orderId}}
+
+### D3. ... its payment: FAILED, failureReason DECLINED_BLOCKED_CUSTOMER
+GET {{paymentService}}/payments?orderId={{blocked.response.body.orderId}}
+
+#####################################################################################################
+# Order API behaviour
+#####################################################################################################
+
+### 1. Place an order -> 202 Accepted, status PENDING
+# @name placeOrder
+POST {{orderService}}/orders
+Content-Type: application/json
+Idempotency-Key: demo-key-001
+
+{
+  "customerId": "{{customerId}}",
+  "currency": "EUR",
+  "lines": [
+    { "sku": "MUG-RED", "quantity": 2, "unitPrice": "12.50" },
+    { "sku": "TEA-GREEN", "quantity": 1, "unitPrice": "8.00" }
+  ]
+}
+
+### 2. Read it back
 GET {{orderService}}/orders/{{placeOrder.response.body.orderId}}
 
 ### 3. Retry with the same key and an equivalent body -> 202, same orderId, Idempotent-Replayed: true
 POST {{orderService}}/orders
 Content-Type: application/json
-Idempotency-Key: {{idempotencyKey}}
+Idempotency-Key: demo-key-001
 
 {
   "customerId": "{{customerId}}",
@@ -41,7 +143,7 @@ Idempotency-Key: {{idempotencyKey}}
 ### 4. Reuse the key for a different order -> 422 Idempotency key reused
 POST {{orderService}}/orders
 Content-Type: application/json
-Idempotency-Key: {{idempotencyKey}}
+Idempotency-Key: demo-key-001
 
 {
   "customerId": "{{customerId}}",

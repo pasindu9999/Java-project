@@ -3,6 +3,11 @@ package io.github.pasindu9999.orderflow.order.app;
 import io.github.pasindu9999.orderflow.contracts.inventory.InventoryEvent;
 import io.github.pasindu9999.orderflow.contracts.inventory.InventoryRejected;
 import io.github.pasindu9999.orderflow.contracts.inventory.InventoryReserved;
+import io.github.pasindu9999.orderflow.contracts.inventory.ReleaseInventory;
+import io.github.pasindu9999.orderflow.contracts.payment.PaymentEvent;
+import io.github.pasindu9999.orderflow.contracts.payment.PaymentFailed;
+import io.github.pasindu9999.orderflow.contracts.payment.PaymentRefunded;
+import io.github.pasindu9999.orderflow.contracts.payment.PaymentSucceeded;
 import io.github.pasindu9999.orderflow.contracts.payment.ProcessPayment;
 import io.github.pasindu9999.orderflow.messaging.Envelope;
 import io.github.pasindu9999.orderflow.messaging.NonRetryableMessageException;
@@ -24,9 +29,9 @@ import org.springframework.transaction.annotation.Transactional;
  * The saga orchestrator: applies the reply handling table (ARCHITECTURE §3.3) to each reply. The status change
  * and the next command go into the same transaction as the inbox row, so they commit together or not at all.
  *
- * <p>Covers the inventory rows of the table. Payment replies follow on Day 6. A late {@code InventoryReserved}
- * on a cancelled order is still ignored here; it can only happen once the timeout sweeper exists, and turning it
- * into {@code ReleaseInventory} is Day 9 (docs/PLAN.md).
+ * <p>Late replies on a cancelled order are still ignored here: they can only happen once the timeout sweeper
+ * exists. A late {@code InventoryReserved} becomes {@code ReleaseInventory} on Day 9, and a late
+ * {@code PaymentSucceeded} becomes {@code RefundPayment} on Day 10 (docs/PLAN.md).
  */
 @Service
 public class OrderSaga {
@@ -52,6 +57,16 @@ public class OrderSaga {
         }
     }
 
+    /** MANDATORY: only ever called from the idempotent inbox handler, which owns the transaction. */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void onPaymentEvent(Envelope envelope) {
+        switch (envelope.payloadAs(PaymentEvent.class)) {
+            case PaymentSucceeded event -> onPaymentSucceeded(load(event.orderId()));
+            case PaymentFailed event -> onPaymentFailed(load(event.orderId()), event, envelope.messageId());
+            case PaymentRefunded event -> onPaymentRefunded(load(event.orderId()));
+        }
+    }
+
     private void onReserved(Order order, UUID causationId) {
         switch (order.status()) {
             case PENDING -> {
@@ -71,6 +86,36 @@ public class OrderSaga {
             }
             case CANCELLED -> log.info("Order {} is already cancelled; recorded late InventoryRejected", order.id());
             case AWAITING_PAYMENT, CONFIRMED -> ignore(order, "InventoryRejected");
+        }
+    }
+
+    private void onPaymentSucceeded(Order order) {
+        switch (order.status()) {
+            case AWAITING_PAYMENT -> {
+                save(order.confirm(now()));
+                log.info("Order {} confirmed", order.id());
+            }
+            case PENDING, CONFIRMED, CANCELLED -> ignore(order, "PaymentSucceeded");
+        }
+    }
+
+    private void onPaymentFailed(Order order, PaymentFailed event, UUID causationId) {
+        switch (order.status()) {
+            case AWAITING_PAYMENT -> {
+                // Compensate the step before the pivot: the stock was reserved for this order.
+                save(order.cancel(CancelReason.PAYMENT_DECLINED, now()));
+                outbox.write(new ReleaseInventory(order.id(), ReleaseInventory.Reason.PAYMENT_DECLINED), causationId);
+                log.info("Order {} cancelled: payment failed ({}); releasing its stock", order.id(), event.reason());
+            }
+            case CANCELLED -> log.info("Order {} is already cancelled; recorded late PaymentFailed", order.id());
+            case PENDING, CONFIRMED -> ignore(order, "PaymentFailed");
+        }
+    }
+
+    private void onPaymentRefunded(Order order) {
+        switch (order.status()) {
+            case CANCELLED -> log.info("Order {} is already cancelled; recorded PaymentRefunded", order.id());
+            case PENDING, AWAITING_PAYMENT, CONFIRMED -> ignore(order, "PaymentRefunded");
         }
     }
 

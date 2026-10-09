@@ -13,4 +13,21 @@
     <artifactId>platform-messaging</artifactId>
     <name>orderflow :: platform-messaging</name>
     <description>Messaging infrastructure shared by all services: codec, outbox, inbox, Kafka error handling. No domain concepts (ADR-0006).</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>io.github.pasindu9999.orderflow</groupId>
+            <artifactId>contracts</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>tools.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
 </project>

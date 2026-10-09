@@ -1,0 +1,16 @@
+{
+  "messageId": "7d3f1c2e-9a51-4b0e-8f0a-2a6a1f6f9c11",
+  "messageType": "ReserveInventory",
+  "schemaVersion": 1,
+  "occurredAt": "2026-10-08T10:15:30.123Z",
+  "correlationId": "3f2b6c1e-0d4a-4a8e-9b6f-1c2d3e4f5a6b",
+  "causationId": null,
+  "producer": "contract-test",
+  "payload": {
+    "orderId": "3f2b6c1e-0d4a-4a8e-9b6f-1c2d3e4f5a6b",
+    "lines": [
+      { "sku": "MUG-RED", "quantity": 2 },
+      { "sku": "TEA-GREEN", "quantity": 1 }
+    ]
+  }
+}

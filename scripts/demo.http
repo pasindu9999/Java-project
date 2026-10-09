@@ -1,0 +1,60 @@
+### orderflow demo requests (VS Code REST Client / IntelliJ HTTP Client)
+# Prerequisites: docker compose up -d, then start order-service (port 8081).
+# Day 2 scope: orders are accepted and stay PENDING. The saga paths are added from Day 6.
+
+@orderService = http://localhost:8081
+@customerId = 2ceecac6-e0e2-4ce0-a0da-f1edfb0b3893
+@idempotencyKey = demo-key-001
+
+### 1. Place an order -> 202 Accepted, status PENDING
+# @name placeOrder
+POST {{orderService}}/orders
+Content-Type: application/json
+Idempotency-Key: {{idempotencyKey}}
+
+{
+  "customerId": "{{customerId}}",
+  "currency": "EUR",
+  "lines": [
+    { "sku": "MUG-RED", "quantity": 2, "unitPrice": "12.50" },
+    { "sku": "TEA-GREEN", "quantity": 1, "unitPrice": "8.00" }
+  ]
+}
+
+### 2. Read it back (polling target for the saga outcome)
+GET {{orderService}}/orders/{{placeOrder.response.body.orderId}}
+
+### 3. Retry with the same key and an equivalent body -> 202, same orderId, Idempotent-Replayed: true
+POST {{orderService}}/orders
+Content-Type: application/json
+Idempotency-Key: {{idempotencyKey}}
+
+{
+  "customerId": "{{customerId}}",
+  "currency": "EUR",
+  "lines": [
+    { "sku": "MUG-RED", "quantity": 2, "unitPrice": "12.5" },
+    { "sku": "TEA-GREEN", "quantity": 1, "unitPrice": "8" }
+  ]
+}
+
+### 4. Reuse the key for a different order -> 422 Idempotency key reused
+POST {{orderService}}/orders
+Content-Type: application/json
+Idempotency-Key: {{idempotencyKey}}
+
+{
+  "customerId": "{{customerId}}",
+  "currency": "EUR",
+  "lines": [ { "sku": "MUG-RED", "quantity": 5, "unitPrice": "12.50" } ]
+}
+
+### 5. Break several rules at once -> 400 with every violation listed
+POST {{orderService}}/orders
+Content-Type: application/json
+Idempotency-Key: demo-invalid-001
+
+{
+  "currency": "XYZ",
+  "lines": [ { "sku": "MUG-RED", "quantity": 0, "unitPrice": "-1" } ]
+}

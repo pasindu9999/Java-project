@@ -1,0 +1,16 @@
+{
+  "messageId": "7d3f1c2e-9a51-4b0e-8f0a-2a6a1f6f9c11",
+  "messageType": "ProcessPayment",
+  "schemaVersion": 1,
+  "occurredAt": "2026-10-08T10:15:30.123Z",
+  "correlationId": "3f2b6c1e-0d4a-4a8e-9b6f-1c2d3e4f5a6b",
+  "causationId": "5a0e7b9c-2d1f-4c3b-8a6e-9f8d7c6b5a40",
+  "producer": "contract-test",
+  "payload": {
+    "orderId": "3f2b6c1e-0d4a-4a8e-9b6f-1c2d3e4f5a6b",
+    "customerId": "c0ffee00-1234-4abc-8def-000000000001",
+    "amount": "37.50",
+    "currency": "EUR",
+    "expiresAt": "2026-10-08T10:16:00Z"
+  }
+}

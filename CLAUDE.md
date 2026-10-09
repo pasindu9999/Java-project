@@ -6,7 +6,7 @@ Read first: `docs/ARCHITECTURE.md`, `docs/adr/`, `docs/PLAN.md`.
 
 ## Working agreement
 
-- **Phase: implementation.** `docs/PLAN.md` was approved on 2026-10-08. Current day: **Day 1** (skeleton and infrastructure).
+- **Phase: implementation.** `docs/PLAN.md` was approved on 2026-10-08. Current day: **Day 2** done (contracts, codec, order API). Next: **Day 3** (outbox).
 - **Never commit or push automatically.** The owner reviews and commits.
 - Work follows `docs/PLAN.md` day by day. Don't start the next day's scope early.
 - Every design decision must be defensible in an interview. If you change one, update the relevant ADR (or add a new one) in the same commit, including the options considered and the strongest argument against.
@@ -23,16 +23,18 @@ Read first: `docs/ARCHITECTURE.md`, `docs/adr/`, `docs/PLAN.md`.
 ## Modules
 
 ```
-contracts/            message records + golden-file tests. No Spring, no logic.
-platform-messaging/   envelope codec, OutboxWriter/OutboxRelay, IdempotentMessageHandler,
-                      Kafka error handler (auto-configuration). No domain concepts.
+contracts/            message records, MessageCatalog, Topics. No dependencies, no logic.
+platform-messaging/   envelope codec + golden-file contract tests, OutboxWriter/OutboxRelay,
+                      IdempotentMessageHandler, Kafka error handler (auto-configuration). No domain concepts.
 order-service/        REST API + saga orchestrator (port 8081)
 inventory-service/    stock + reservations (port 8082)
 payment-service/      payment simulator (port 8083)
 e2e-tests/            all three services in one JVM against shared containers
 ```
 
-Services never depend on each other. Only `e2e-tests` depends on the services.
+Services never depend on each other. Only `e2e-tests` depends on the services. Dependencies point one way: services → `platform-messaging` → `contracts`.
+
+Adding a message type: add the record to `contracts`, add an explicit entry to `MessageCatalog`, then add a sample and a golden file in `platform-messaging` (a test fails until you do). **Never edit an existing golden file**; a breaking change gets a new version.
 
 ## Package layout (per service)
 

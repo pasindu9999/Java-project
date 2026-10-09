@@ -16,6 +16,10 @@ spring:
     consumer:
       group-id: order-service
 
+orderflow:
+  saga:
+    timeout: PT30S
+
 management:
   endpoints:
     web:

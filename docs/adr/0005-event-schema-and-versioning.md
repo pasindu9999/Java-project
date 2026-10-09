@@ -49,8 +49,10 @@ Envelope: `messageId, messageType, schemaVersion, occurredAt, correlationId, cau
 5. **Enums:** adding a value is a breaking change for exhaustive `switch`es, so it's treated as a version bump unless consumers map unknown values to a fallback.
 6. Money is a decimal string, timestamps are ISO-8601 UTC, IDs are UUID strings.
 
-### Contract tests (in the `contracts` module)
-For every message type, a golden file `src/test/resources/contracts/<MessageType>.v<N>.json`, and three tests:
+### Contract tests (in `platform-messaging`, next to the codec)
+The wire format is *contracts × codec settings*: the same record is a different wire message if, for example, the codec stops writing money as a string. So the tests live where both meet, and use the production `MessageCodec`. `contracts` itself stays dependency-free.
+
+For every message type, a golden file `platform-messaging/src/test/resources/contracts/<MessageType>.v<N>.json` (a complete envelope), and three tests:
 - **Serialization is stable:** serialize a sample record → must equal the golden file. Catches accidental renames and type changes.
 - **Backward compatible:** deserialize the golden file → succeeds and the fields match.
 - **Tolerant reader:** golden file + an extra unknown field → still deserializes.
@@ -74,8 +76,9 @@ All true. The trade-off is made knowingly:
 
 ## Consequences
 
-- A `contracts` module with no Spring dependency: records, sealed interfaces, and the golden-file tests.
-- A `MessageCodec` in `platform-messaging`: envelope ↔ JSON (Jackson 3, Spring Boot 4's default), with dispatch on `(messageType, schemaVersion)`.
+- A `contracts` module with **no dependencies at all**: records, sealed interfaces, topic names, and a `MessageCatalog` mapping each explicit type name + version to its record and topic. Type names are string literals, never `Class.getSimpleName()`, so renaming a class can't change the wire.
+- A `MessageCodec` in `platform-messaging`: envelope ↔ JSON (Jackson 3), with dispatch on `(messageType, schemaVersion)` through the catalog. It owns its own `JsonMapper`, so tuning `spring.jackson.*` for the REST API can never change the Kafka wire format.
+- Golden files and contract tests in `platform-messaging`, plus a test that fails when a catalog entry has no sample/golden file.
 - Kafka uses `StringSerializer`/`StringDeserializer`, so the codec is the only place JSON is handled and the only source of `MessageParseException`.
 
 ## Interview soundbite

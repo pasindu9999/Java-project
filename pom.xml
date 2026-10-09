@@ -29,6 +29,8 @@
 
     <properties>
         <java.version>25</java.version>
+        <!-- Empty default so @{argLine} below resolves even when no other plugin sets argLine. -->
+        <argLine/>
     </properties>
 
     <dependencyManagement>
@@ -48,10 +50,35 @@
 
     <build>
         <plugins>
+            <!-- Exposes ${org.mockito:mockito-core:jar} so Mockito loads as a proper -javaagent: JDK 21+ warns
+                 about agents attached at runtime and will eventually refuse them (JEP 451). Every module with tests
+                 gets Mockito through spring-boot-starter-test. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>resolve-dependency-paths</id>
+                        <goals>
+                            <goal>properties</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
             <!-- Surefire runs *Test during `test`; failsafe runs *IT during `verify` (executions configured by the Boot parent). -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <argLine>@{argLine} -javaagent:${org.mockito:mockito-core:jar}</argLine>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-failsafe-plugin</artifactId>
+                <configuration>
+                    <argLine>@{argLine} -javaagent:${org.mockito:mockito-core:jar}</argLine>
+                </configuration>
             </plugin>
         </plugins>
     </build>

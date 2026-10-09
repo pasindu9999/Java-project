@@ -571,11 +571,15 @@ Content-Type: application/json
 | Situation | Response |
 |---|---|
 | New order | `202 Accepted`, `Location: /orders/{id}`, body `{ orderId, status: "PENDING" }` |
-| Same key, same body | `202` with the **same** `orderId` (a safe client retry) |
+| Same key, same body | `202` with the **same** `orderId` and `Idempotent-Replayed: true` (a safe client retry). "Same" is compared on the normalised request, so `"12.5"` and `"12.50"` match. |
 | Same key, different body | `422 Unprocessable Entity` |
 | Missing key or invalid body | `400`, as an RFC 9457 `ProblemDetail` |
 
 Prices come from the client because there is no catalog in scope. This is a known simplification (§10).
+
+**Validation** lives in the domain (`OrderDraft.of`), not in Bean Validation annotations: one place for the rules, plain Java, no extra dependency. It reports every violation in one `errors` list.
+
+**Concurrent retries with the same key** are resolved by the `UNIQUE (customer_id, idempotency_key)` index. The losing insert fails, and because Postgres aborts a transaction after a constraint violation, the loser re-reads the winner's order *outside* that transaction and replays it.
 
 ---
 

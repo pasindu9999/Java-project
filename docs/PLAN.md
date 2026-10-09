@@ -1,6 +1,6 @@
 # orderflow: Delivery plan (12-14 days, 6-8 h/day)
 
-> Status: **approved 2026-10-08.** Day 0 is done, Day 1 is in progress.
+> Status: **approved 2026-10-08.** Days 0-2 are done. Next: Day 3 (outbox).
 
 ## Ground rules
 

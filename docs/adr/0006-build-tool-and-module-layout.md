@@ -41,8 +41,8 @@ Three Spring Boot services, some shared infrastructure code (outbox, inbox, code
 ```
 orderflow/
 ├── pom.xml                  parent: spring-boot-starter-parent 4.1.x, <java.version>25
-├── contracts/               message records + golden-file tests (no Spring)
-├── platform-messaging/      envelope codec, outbox writer/relay, inbox handler,
+├── contracts/               message records, MessageCatalog, topic names (no dependencies)
+├── platform-messaging/      envelope codec + golden-file tests, outbox writer/relay, inbox handler,
 │                            Kafka error handler (Spring auto-configuration)
 ├── order-service/
 ├── inventory-service/
@@ -56,6 +56,7 @@ Rules that keep the shared modules from becoming a "distributed monolith":
 - `contracts` holds **data shapes only**: records, enums, sealed interfaces. No logic, no Spring.
 - `platform-messaging` holds **infrastructure only**: no domain concepts, never imports from a service.
 - Services never depend on each other. Only `e2e-tests` depends on all three.
+- Dependencies point one way: services → `platform-messaging` → `contracts`. The golden-file tests sit in `platform-messaging` because they need the codec, and a `contracts` → `platform-messaging` test dependency would create a cycle (ADR-0005).
 
 Build conventions:
 - Surefire runs unit tests (`*Test`) during `test`. Failsafe runs integration tests (`*IT`) during `verify`.

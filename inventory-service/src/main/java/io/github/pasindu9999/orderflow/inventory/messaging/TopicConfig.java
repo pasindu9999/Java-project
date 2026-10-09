@@ -1,0 +1,24 @@
+package io.github.pasindu9999.orderflow.inventory.messaging;
+
+import io.github.pasindu9999.orderflow.contracts.Topics;
+import org.apache.kafka.clients.admin.NewTopic;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.kafka.config.TopicBuilder;
+
+/**
+ * Topics this service produces to (ARCHITECTURE §4). {@code inventory.commands} is consumed here but declared by
+ * order-service, its producer; until that topic exists the listener just waits for it.
+ */
+@Configuration(proxyBeanMethods = false)
+class TopicConfig {
+
+    static final int PARTITIONS = 3;
+    /** 1 for the single local broker; production would use 3 with min.insync.replicas=2. */
+    static final int REPLICAS = 1;
+
+    @Bean
+    NewTopic inventoryEvents() {
+        return TopicBuilder.name(Topics.INVENTORY_EVENTS).partitions(PARTITIONS).replicas(REPLICAS).build();
+    }
+}

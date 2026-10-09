@@ -1,0 +1,4 @@
+# `local` profile: demo seed data on top of the real migrations.
+spring:
+  flyway:
+    locations: classpath:db/migration/inventory,classpath:db/seed/inventory

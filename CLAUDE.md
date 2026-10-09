@@ -6,7 +6,7 @@ Read first: `docs/ARCHITECTURE.md`, `docs/adr/`, `docs/PLAN.md`.
 
 ## Working agreement
 
-- **Phase: implementation.** `docs/PLAN.md` was approved on 2026-10-08. Current day: **Day 3** done (outbox writer, relay, gauges; order emits `ReserveInventory`). Next: **Day 4** (inbox/idempotent consumers, inventory reserve).
+- **Phase: implementation.** `docs/PLAN.md` was approved on 2026-10-08. Current day: **Day 4** done (idempotent inbox, inventory reserve). Next: **Day 5** (inventory release + tombstone, order consumes inventory events). `ReservationService` still throws `UnsupportedOperationException` for `ReleaseInventory`; nothing sends it before Day 5/6.
 - **Never commit or push automatically.** The owner reviews and commits.
 - Work follows `docs/PLAN.md` day by day. Don't start the next day's scope early.
 - Every design decision must be defensible in an interview. If you change one, update the relevant ADR (or add a new one) in the same commit, including the options considered and the strongest argument against.
@@ -81,7 +81,7 @@ Maven groupId: `io.github.pasindu9999.orderflow`. Base package: `io.github.pasin
 - **Every feature ships with an IT that covers its failure path**, not just the happy path.
 - ITs use real Postgres + Kafka through Testcontainers with `@ServiceConnection`. **No H2, no embedded Kafka, no mocking repositories in ITs.**
 - **Never `Thread.sleep`.** Use Awaitility (`await().atMost(10, SECONDS).untilAsserted(...)`).
-- Wait for partition assignment before producing in consumer tests.
+- Consumers use `auto-offset-reset: earliest`, so a test may produce before the listener has its partitions; nothing is missed. To assert that something did **not** happen (e.g. a duplicate was skipped), first wait for proof the message was consumed: its `processed_message` row, or the `messaging.duplicates.skipped` counter. Never assert absence right after sending.
 - Each test uses fresh random `orderId`s/SKUs. Never depend on another test's data or order.
 - Faults are injected through the `FaultInjector` bean (a no-op in production), never through `if (test)` branches in production code. Fault points are named constants on the class that calls them (e.g. `OutboxRelay.AFTER_SEND`).
 - Shared test helpers come from the `platform-messaging` **test-jar**: `ProgrammableFaultInjector` (arm a point; call `reset()` in `@AfterEach`) and `KafkaTopicReader` (reads a topic without a consumer group; filter by orderId). Each service registers `ProgrammableFaultInjector` in its `TestcontainersConfiguration`, so all its ITs share one Spring context.

@@ -3,6 +3,9 @@ package io.github.pasindu9999.orderflow.messaging.autoconfigure;
 import io.github.pasindu9999.orderflow.contracts.MessageCatalog;
 import io.github.pasindu9999.orderflow.messaging.FaultInjector;
 import io.github.pasindu9999.orderflow.messaging.MessageCodec;
+import io.github.pasindu9999.orderflow.messaging.inbox.IdempotentMessageHandler;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.github.pasindu9999.orderflow.messaging.outbox.OutboxMetrics;
 import io.github.pasindu9999.orderflow.messaging.outbox.OutboxProperties;
 import io.github.pasindu9999.orderflow.messaging.outbox.OutboxRelay;
@@ -20,7 +23,10 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/** Gives every service the same codec, outbox writer and relay. Registered in {@code AutoConfiguration.imports}. */
+/**
+ * Gives every service the same codec, outbox writer and relay, and idempotent inbox handler.
+ * Registered in {@code AutoConfiguration.imports}.
+ */
 @AutoConfiguration
 @EnableConfigurationProperties(OutboxProperties.class)
 public class MessagingAutoConfiguration {
@@ -58,5 +64,11 @@ public class MessagingAutoConfiguration {
     @Bean
     OutboxMetrics outboxMetrics(JdbcClient jdbc) {
         return new OutboxMetrics(jdbc);
+    }
+
+    @Bean
+    IdempotentMessageHandler idempotentMessageHandler(JdbcClient jdbc, TransactionTemplate transaction,
+                                                      MessageCodec codec, ObjectProvider<MeterRegistry> meters) {
+        return new IdempotentMessageHandler(jdbc, transaction, codec, meters.getIfAvailable(SimpleMeterRegistry::new));
     }
 }

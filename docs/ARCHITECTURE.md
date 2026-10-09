@@ -334,7 +334,9 @@ listener(record):
     → container commits offset (AckMode.RECORD)
 ```
 
-The inbox row is inserted **first** on purpose. If two consumers race on the same message (for example during a rebalance), the second blocks on the unique index until the first commits, and then sees the conflict.
+The inbox row is inserted **first** on purpose. If two consumers race on the same message (for example during a rebalance), the second blocks on the unique index until the first commits, and then sees the conflict. `IdempotentMessageHandlerIT` proves this by holding the first transaction open until Postgres reports the second session waiting on a lock.
+
+Business handlers declare `@Transactional(propagation = MANDATORY)`: they can only run inside the inbox transaction, so the reply in the outbox, the state change and the inbox row always commit together. Each skipped duplicate increments `messaging.duplicates.skipped{consumer=…}`.
 
 ### 7.3 Retries and DLT (ADR-0004)
 

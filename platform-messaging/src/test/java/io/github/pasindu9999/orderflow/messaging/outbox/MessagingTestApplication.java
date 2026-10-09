@@ -2,6 +2,7 @@ package io.github.pasindu9999.orderflow.messaging.outbox;
 
 import io.github.pasindu9999.orderflow.contracts.Topics;
 import io.github.pasindu9999.orderflow.messaging.testing.ProgrammableFaultInjector;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
@@ -15,7 +16,12 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  * The relay's background thread is off (see application.yml): tests call {@code publishBatch()} themselves.
  */
 @SpringBootApplication
-class MessagingTestApplication {
+public class MessagingTestApplication {
+
+    @Bean
+    SimpleMeterRegistry meterRegistry() {
+        return new SimpleMeterRegistry();
+    }
 
     @Bean
     @ServiceConnection

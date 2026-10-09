@@ -1,0 +1,23 @@
+server:
+  port: 8083
+
+spring:
+  application:
+    name: payment-service
+  # Defaults point at docker-compose.yml. Override with SPRING_DATASOURCE_* / SPRING_KAFKA_* env vars.
+  datasource:
+    url: jdbc:postgresql://localhost:5435/payment_db
+    username: orderflow
+    password: orderflow
+  flyway:
+    locations: classpath:db/migration/payment
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: payment-service
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

@@ -1,0 +1,23 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: order-service
+  # Defaults point at docker-compose.yml. Override with SPRING_DATASOURCE_* / SPRING_KAFKA_* env vars.
+  datasource:
+    url: jdbc:postgresql://localhost:5433/order_db
+    username: orderflow
+    password: orderflow
+  flyway:
+    locations: classpath:db/migration/order
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: order-service
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

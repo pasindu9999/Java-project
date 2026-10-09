@@ -1,6 +1,6 @@
 # orderflow: Delivery plan (12-14 days, 6-8 h/day)
 
-> Status: **approved 2026-10-08.** Days 0-6 are done (M1 and M2 reached). Next: Day 7 (end-to-end test module).
+> Status: **approved 2026-10-08.** Days 0-7 are done (M1 and M2 reached). Next: Day 8 (retry, backoff and DLT). Day 7 used the in-JVM approach; the compose smoke-script fallback wasn't needed.
 
 ## Ground rules
 

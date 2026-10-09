@@ -6,7 +6,7 @@ Read first: `docs/ARCHITECTURE.md`, `docs/adr/`, `docs/PLAN.md`.
 
 ## Working agreement
 
-- **Phase: implementation.** `docs/PLAN.md` was approved on 2026-10-08. Current day: **Day 6** done (payment-service, payment replies, `demo.http`; **M2 reached**). Next: **Day 7** (e2e-tests module). Deliberately deferred: `OrderSaga` ignores (WARN) late replies on a cancelled order (`InventoryReserved` → `ReleaseInventory` is Day 9, `PaymentSucceeded` → `RefundPayment` is Day 10), and payment-service doesn't check `expiresAt` yet (Day 10).
+- **Phase: implementation.** `docs/PLAN.md` was approved on 2026-10-08. Current day: **Day 7** done (`e2e-tests`: all three services in one JVM). Next: **Day 8** (retry, backoff and DLT). Deliberately deferred: `OrderSaga` ignores (WARN) late replies on a cancelled order (`InventoryReserved` → `ReleaseInventory` is Day 9, `PaymentSucceeded` → `RefundPayment` is Day 10), and payment-service doesn't check `expiresAt` yet (Day 10).
 - **Never commit or push automatically.** The owner reviews and commits.
 - Work follows `docs/PLAN.md` day by day. Don't start the next day's scope early.
 - Every design decision must be defensible in an interview. If you change one, update the relevant ADR (or add a new one) in the same commit, including the options considered and the strongest argument against.
@@ -86,6 +86,7 @@ Maven groupId: `io.github.pasindu9999.orderflow`. Base package: `io.github.pasin
 - Faults are injected through the `FaultInjector` bean (a no-op in production), never through `if (test)` branches in production code. Fault points are named constants on the class that calls them (e.g. `OutboxRelay.AFTER_SEND`).
 - Shared test helpers come from the `platform-messaging` **test-jar**: `ProgrammableFaultInjector` (arm a point; call `reset()` in `@AfterEach`) and `KafkaTopicReader` (reads a topic without a consumer group; filter by orderId). Each service registers `ProgrammableFaultInjector` in its `TestcontainersConfiguration`, so all its ITs share one Spring context.
 - Singleton containers per module. Locally, enable reuse in `~/.testcontainers.properties`: `testcontainers.reuse.enable=true`.
+- `e2e-tests` boots the three services with `SpringApplicationBuilder`, each reading its own module's `src/main/resources/` through `spring.config.location` (every service jar has a root `application.yml`, so the classpath can't tell them apart). It drives the system only through the REST APIs; the one shortcut is inserting each test's stock rows into inventory_db.
 - Done = `./mvnw verify` green locally **and** in CI.
 
 ## Run locally
@@ -97,12 +98,14 @@ Pinned images (keep tests and compose in sync): `postgres:18.6-alpine`, `apache/
 ```bash
 ./mvnw verify                                   # all unit + integration tests (Windows: mvnw.cmd)
 ./mvnw -pl inventory-service -am verify         # one service and its dependencies
+./mvnw -pl e2e-tests -am verify                 # end-to-end saga (needs -am: service jars aren't installed)
 
 docker compose up -d                            # Kafka :9092, Postgres :5433/:5434/:5435, kafka-ui :8080
 ./mvnw -pl order-service -am spring-boot:run -Dspring-boot.run.profiles=local
 ./mvnw -pl inventory-service -am spring-boot:run -Dspring-boot.run.profiles=local
 ./mvnw -pl payment-service -am spring-boot:run -Dspring-boot.run.profiles=local
 
+java -jar order-service/target/order-service-0.1.0-SNAPSHOT-exec.jar   # the runnable jar has the `exec` classifier
 docker compose --profile apps up -d --build     # everything in containers (from Day 11)
 docker compose down -v                          # stop and wipe volumes
 ```

@@ -6,7 +6,7 @@ Read first: `docs/ARCHITECTURE.md`, `docs/adr/`, `docs/PLAN.md`.
 
 ## Working agreement
 
-- **Phase: implementation.** `docs/PLAN.md` was approved on 2026-10-08. Current day: **Day 10** done (`OrderTimeoutSweeper`, payment declines expired commands, late `PaymentSucceeded` → `RefundPayment`). Next: **Day 11** (operability and containerisation).
+- **Phase: implementation.** `docs/PLAN.md` was approved on 2026-10-08. Current day: **Day 11** done (outbox/inbox cleanup, `/actuator/metrics`, virtual threads, images + compose `apps` profile). Next: **Day 12** (README, docs refresh, ADRs → Accepted, interview notes → M4).
 - **Never commit or push automatically.** The owner reviews and commits.
 - Work follows `docs/PLAN.md` day by day. Don't start the next day's scope early.
 - Every design decision must be defensible in an interview. If you change one, update the relevant ADR (or add a new one) in the same commit, including the options considered and the strongest argument against.
@@ -107,7 +107,7 @@ docker compose up -d                            # Kafka :9092, Postgres :5433/:5
 ./mvnw -pl payment-service -am spring-boot:run -Dspring-boot.run.profiles=local
 
 java -jar order-service/target/order-service-0.1.0-SNAPSHOT-exec.jar   # the runnable jar has the `exec` classifier
-docker compose --profile apps up -d --build     # everything in containers (from Day 11)
+docker compose --profile apps up -d --build     # everything in containers (one root Dockerfile, --build-arg SERVICE)
 docker compose down -v                          # stop and wipe volumes
 ```
 

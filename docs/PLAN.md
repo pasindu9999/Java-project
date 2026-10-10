@@ -1,6 +1,6 @@
 # orderflow: Delivery plan (12-14 days, 6-8 h/day)
 
-> Status: **approved 2026-10-08.** Days 0-10 are done (M1, M2 and M3 reached). Next: Day 11 (operability and containerisation). Day 7 used the in-JVM approach; the compose smoke-script fallback wasn't needed.
+> Status: **approved 2026-10-08.** Days 0-11 are done (M1, M2 and M3 reached). Next: Day 12 (documentation and interview prep → M4). Day 11 uses one parameterized root `Dockerfile` (`--build-arg SERVICE`) instead of three identical per-service files. Day 7 used the in-JVM approach; the compose smoke-script fallback wasn't needed.
 
 ## Ground rules
 

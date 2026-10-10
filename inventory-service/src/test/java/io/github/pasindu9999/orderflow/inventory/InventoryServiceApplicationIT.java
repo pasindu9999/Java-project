@@ -39,6 +39,15 @@ class InventoryServiceApplicationIT {
     }
 
     @Test
+    void shouldExposeOutboxGaugeAndHealthDetails_whenActuatorIsQueried() {
+        RestClient actuator = RestClient.create("http://localhost:" + port + "/actuator");
+
+        assertThat(actuator.get().uri("/metrics/outbox.pending").retrieve().body(String.class))
+                .contains("\"name\":\"outbox.pending\"");
+        assertThat(actuator.get().uri("/health").retrieve().body(String.class)).contains("\"db\"");
+    }
+
+    @Test
     void shouldCreateMessagingTables_whenFlywayMigrationsRun() {
         var tables = jdbc.sql("""
                         SELECT table_name FROM information_schema.tables

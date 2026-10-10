@@ -3,6 +3,9 @@ package io.github.pasindu9999.orderflow.messaging.autoconfigure;
 import io.github.pasindu9999.orderflow.contracts.MessageCatalog;
 import io.github.pasindu9999.orderflow.messaging.FaultInjector;
 import io.github.pasindu9999.orderflow.messaging.MessageCodec;
+import io.github.pasindu9999.orderflow.messaging.cleanup.CleanupProperties;
+import io.github.pasindu9999.orderflow.messaging.cleanup.MessagingCleanup;
+import io.github.pasindu9999.orderflow.messaging.cleanup.MessagingCleanupScheduler;
 import io.github.pasindu9999.orderflow.messaging.error.ConsumerRetryProperties;
 import io.github.pasindu9999.orderflow.messaging.error.DeadLetterErrorHandler;
 import io.github.pasindu9999.orderflow.messaging.inbox.IdempotentMessageHandler;
@@ -27,11 +30,11 @@ import org.springframework.kafka.listener.CommonErrorHandler;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * Gives every service the same codec, outbox writer and relay, idempotent inbox handler and consumer error
- * handler. Registered in {@code AutoConfiguration.imports}.
+ * Gives every service the same codec, outbox writer and relay, idempotent inbox handler, consumer error handler
+ * and outbox/inbox cleanup. Registered in {@code AutoConfiguration.imports}.
  */
 @AutoConfiguration
-@EnableConfigurationProperties({OutboxProperties.class, ConsumerRetryProperties.class})
+@EnableConfigurationProperties({OutboxProperties.class, ConsumerRetryProperties.class, CleanupProperties.class})
 public class MessagingAutoConfiguration {
 
     @Bean
@@ -73,6 +76,17 @@ public class MessagingAutoConfiguration {
     IdempotentMessageHandler idempotentMessageHandler(JdbcClient jdbc, TransactionTemplate transaction, MessageCodec codec,
                                                       ObjectProvider<MeterRegistry> meters, FaultInjector faults) {
         return new IdempotentMessageHandler(jdbc, transaction, codec, meters.getIfAvailable(SimpleMeterRegistry::new), faults);
+    }
+
+    @Bean
+    MessagingCleanup messagingCleanup(JdbcClient jdbc, ObjectProvider<Clock> clock, CleanupProperties properties) {
+        return new MessagingCleanup(jdbc, clock.getIfAvailable(Clock::systemUTC), properties);
+    }
+
+    @Bean
+    @ConditionalOnBooleanProperty(name = "orderflow.cleanup.enabled", matchIfMissing = true)
+    MessagingCleanupScheduler messagingCleanupScheduler(MessagingCleanup cleanup, CleanupProperties properties) {
+        return new MessagingCleanupScheduler(cleanup, properties);
     }
 
     /** Spring Boot applies a single {@link CommonErrorHandler} bean to every listener container. */

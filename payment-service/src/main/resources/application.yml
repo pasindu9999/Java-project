@@ -4,11 +4,19 @@ server:
 spring:
   application:
     name: payment-service
+  # Tomcat requests and Kafka listener threads run on virtual threads (ARCHITECTURE §7.5).
+  threads:
+    virtual:
+      enabled: true
   # Defaults point at docker-compose.yml. Override with SPRING_DATASOURCE_* / SPRING_KAFKA_* env vars.
   datasource:
     url: jdbc:postgresql://localhost:5435/payment_db
     username: orderflow
     password: orderflow
+    hikari:
+      # Virtual threads make blocking cheap, but they don't create database connections: this pool is still
+      # the cap on concurrent DB work.
+      maximum-pool-size: 10
   flyway:
     locations: classpath:db/migration/payment
   kafka:
@@ -51,4 +59,10 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        # health: container healthchecks. metrics: outbox.pending, outbox.oldest.age, messaging.duplicates.skipped,
+        # messaging.dlt.published (counters appear once they first count something).
+        include: health,info,metrics
+  endpoint:
+    health:
+      # Local and demo setup: show the db and disk details. A public deployment would use when-authorized.
+      show-details: always

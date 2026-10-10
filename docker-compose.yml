@@ -84,6 +84,80 @@ services:
       kafka:
         condition: service_healthy
 
+  # ---------------------------------------------------------------------------------------------------------
+  # The three services, only with:  docker compose --profile apps up -d --build
+  # Without the profile, compose starts the infrastructure only and the services run from the IDE or Maven.
+  # They use the `local` profile (seed stock, the demo's blocked customer) and the INTERNAL Kafka listener.
+  # ---------------------------------------------------------------------------------------------------------
+  order-service:
+    profiles: [apps]
+    build:
+      context: .
+      args:
+        SERVICE: order-service
+    image: orderflow/order-service:local
+    ports:
+      - "8081:8081"
+    environment:
+      SPRING_PROFILES_ACTIVE: local
+      SPRING_DATASOURCE_URL: jdbc:postgresql://order-db:5432/order_db
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+    depends_on:
+      kafka:
+        condition: service_healthy
+      order-db:
+        condition: service_healthy
+    healthcheck: &app-health
+      test: ["CMD", "healthcheck", "8081"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 60s
+
+  inventory-service:
+    profiles: [apps]
+    build:
+      context: .
+      args:
+        SERVICE: inventory-service
+    image: orderflow/inventory-service:local
+    ports:
+      - "8082:8082"
+    environment:
+      SPRING_PROFILES_ACTIVE: local
+      SPRING_DATASOURCE_URL: jdbc:postgresql://inventory-db:5432/inventory_db
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+    depends_on:
+      kafka:
+        condition: service_healthy
+      inventory-db:
+        condition: service_healthy
+    healthcheck:
+      <<: *app-health
+      test: ["CMD", "healthcheck", "8082"]
+
+  payment-service:
+    profiles: [apps]
+    build:
+      context: .
+      args:
+        SERVICE: payment-service
+    image: orderflow/payment-service:local
+    ports:
+      - "8083:8083"
+    environment:
+      SPRING_PROFILES_ACTIVE: local
+      SPRING_DATASOURCE_URL: jdbc:postgresql://payment-db:5432/payment_db
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+    depends_on:
+      kafka:
+        condition: service_healthy
+      payment-db:
+        condition: service_healthy
+    healthcheck:
+      <<: *app-health
+      test: ["CMD", "healthcheck", "8083"]
+
 volumes:
   order-db-data:
   inventory-db-data:

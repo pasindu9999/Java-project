@@ -319,8 +319,8 @@ COMMIT;
 - The relay runs on its **own single background thread** (`OutboxRelayScheduler`, a `SmartLifecycle`), not on `@Scheduled`, so the library doesn't switch on scheduling for the whole application. It starts after Kafka and stops before it. When a batch comes back full it runs again immediately, so a burst doesn't wait one poll interval per batch.
 - Tests set `orderflow.outbox.relay-enabled=false` and call `OutboxRelay.publishBatch()` directly, so every step is deterministic. Crash points (`OutboxRelay.BEFORE_SEND`, `AFTER_SEND`, `OutboxWriter.AFTER_WRITE`) are triggered through the `FaultInjector`.
 - There is no "last published id" high-water mark. Identity values are assigned at *insert* time, not commit time, so a transaction holding `id = 10` can commit after `id = 11` has already been published. A high-water mark would skip it forever. The `published_at IS NULL` flag never skips anything.
-- An hourly cleanup job deletes published rows older than 7 days.
-- A gauge `outbox.pending` and a gauge for the age of the oldest unpublished row are exposed through Actuator.
+- An hourly cleanup job (`MessagingCleanup`, own background thread like the relay) deletes published rows older than 7 days and `processed_message` rows older than 14 days, in batches of 1 000 that each commit on their own. Unpublished rows are never deleted, however old. The inbox is kept longer than the outbox because a producer can only re-send a message while its outbox row exists; a DLT replay after both are gone is caught by the natural keys. Settings: `orderflow.cleanup.*`.
+- A gauge `outbox.pending` and a gauge for the age of the oldest unpublished row are exposed through Actuator (`/actuator/metrics`), next to the `messaging.duplicates.skipped` and `messaging.dlt.published` counters.
 
 ### 7.2 Consuming: idempotent handler (ADR-0003)
 
@@ -364,7 +364,8 @@ The deadline defaults to `PT30S` (`orderflow.saga.timeout`); the schedule is `or
 ### 7.5 Threads
 
 `spring.threads.virtual.enabled=true`. Tomcat request handling, `@Scheduled` tasks and Kafka listener containers then run on virtual threads.
-- Virtual threads make blocking JDBC calls cheap, but **database concurrency is still capped by the HikariCP pool size**. Virtual threads don't create database connections.
+- Virtual threads make blocking JDBC calls cheap, but **database concurrency is still capped by the HikariCP pool size**. Virtual threads don't create database connections. Each service sets `maximum-pool-size: 10` explicitly: enough for 3 listener threads, the relay, the sweeper and request bursts. Extra threads wait for a connection instead of overloading Postgres, and in inventory a bigger pool would mostly mean more transactions queuing on the same stock-row locks.
+- The outbox relay and the cleanup job keep their own single platform thread (they are long-lived loops, not request work).
 - Since JDK 24 (JEP 491), `synchronized` blocks no longer pin the carrier thread, which removes the classic virtual-thread pitfall with older JDBC drivers.
 
 ---

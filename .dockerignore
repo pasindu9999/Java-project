@@ -1,0 +1,10 @@
+# Build context for the Dockerfile: sources and the Maven wrapper only. Every module's pom must stay in
+# (Maven reads the whole reactor), but build output, VCS data and docs don't need to be sent to Docker.
+**/target
+.git
+.github
+.idea
+.vscode
+.claude
+docs
+scripts
